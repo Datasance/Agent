@@ -1,10 +1,11 @@
 plugins {
-    id "com.github.johnrengelman.shadow" version "5.0.0" apply false
+    id "com.github.johnrengelman.shadow" version "8.1.1" apply false
+    id 'java'
 }
 
 allprojects {
     group = 'org.eclipse'
-    version = '3.2.0'
+    version = '3.3.0'
 }
 
 subprojects {
@@ -16,10 +17,10 @@ subprojects {
         mavenLocal()
     }
 
-    //sourceCompatibility = JavaVersion.VERSION_11
-    //targetCompatibility = JavaVersion.VERSION_11
-    sourceCompatibility = 1.8
-    targetCompatibility = 1.8
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    //sourceCompatibility = 1.8
+    //targetCompatibility = 1.8
 
     task sourcesJar(type: Jar) {
         from sourceSets.main.allJava
