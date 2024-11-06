@@ -42,7 +42,7 @@ COPY . .
 RUN gradle build -x test --no-daemon
 RUN gradle copy -x test --no-daemon
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
+FROM registry.access.redhat.com/ubi8/ubi-minimal:8.10
 
 RUN true && \
     microdnf install -y curl ca-certificates java-17-openjdk-headless sudo shadow-utils && \
