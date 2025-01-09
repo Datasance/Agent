@@ -155,6 +155,7 @@ public class DockerUtilTest {
         String bridgeName = "default_bridge";
         containerID = "containerID";
         imageID = "imageID";
+        platform = "platform";
         ipAddress = "ipAddress";
         dockerBridgeMap.put("com.docker.network.bridge.default_bridge", bridgeName);
 
@@ -192,6 +193,7 @@ public class DockerUtilTest {
         Mockito.when(dockerClient.inspectImageCmd(anyString())).thenReturn(inspectImageCmd);
         Mockito.doAnswer((Answer) invocation -> null).when(inspectImageCmd).exec();
         Mockito.when(pullImageCmd.withRegistry(anyString())).thenReturn(pullImageCmd);
+        Mockito.when(pullImageCmd.withPlatform(anyString())).thenReturn(pullImageCmd);
         Mockito.when(pullImageCmd.withTag(anyString())).thenReturn(pullImageCmd);
         Mockito.when(pullImageCmd.withAuthConfig(any())).thenReturn(pullImageCmd);
         Mockito.when(pullImageCmd.exec(any())).thenReturn(pullImageResultCallback);
@@ -888,7 +890,7 @@ public class DockerUtilTest {
      */
     @Test
     public void testPullImageWhenRegistryIsNull() throws AgentSystemException {
-        assertThrows(AgentSystemException.class, () -> dockerUtil.pullImage(imageID, containerID,null));
+        assertThrows(AgentSystemException.class, () -> dockerUtil.pullImage(imageID, containerID, null, null));
     }
 
     /**
@@ -901,9 +903,10 @@ public class DockerUtilTest {
             Mockito.when(registry.getUrl()).thenReturn("url");
             Mockito.when(registry.getIsPublic()).thenReturn(true);
             imageID = "agent:1.3.0-beta";
-            dockerUtil.pullImage(imageID, containerID, registry);
+            dockerUtil.pullImage(imageID, containerID, platform, registry);
             Mockito.verify(dockerClient).pullImageCmd(any());
             Mockito.verify(pullImageCmd).withRegistry(any());
+            Mockito.verify(pullImageCmd).withPlatform(any());
             Mockito.verify(pullImageCmd).withTag(any());
             Mockito.verify(pullImageCmd).exec(any());
         } catch (AgentSystemException e) {
@@ -926,10 +929,11 @@ public class DockerUtilTest {
             Mockito.when(registry.getIsPublic()).thenReturn(false);
             imageID = "agent:1.3.0-beta";
             containerID ="id";
-            dockerUtil.pullImage(imageID, containerID, registry);
+            dockerUtil.pullImage(imageID, containerID, platform, registry);
             Mockito.verify(dockerClient).pullImageCmd(any());
             Mockito.verify(pullImageCmd, Mockito.never()).withRegistry(any());
             Mockito.verify(pullImageCmd).withTag(any());
+            Mockito.verify(pullImageCmd).withPlatform(any());
             Mockito.verify(pullImageCmd).withAuthConfig(any());
             Mockito.verify(pullImageCmd).exec(any());
         } catch (AgentSystemException e) {
@@ -949,7 +953,7 @@ public class DockerUtilTest {
         Mockito.when(registry.getUrl()).thenReturn("url");
         Mockito.when(registry.getIsPublic()).thenReturn(true);
         imageID = "agent:1.3.0-beta";
-        assertThrows(AgentSystemException.class, () -> dockerUtil.pullImage(imageID, containerID, registry));
+        assertThrows(AgentSystemException.class, () -> dockerUtil.pullImage(imageID, containerID, platform, registry));
     }
 
     /**
@@ -963,7 +967,7 @@ public class DockerUtilTest {
         Mockito.when(registry.getUrl()).thenReturn("url");
         Mockito.when(registry.getIsPublic()).thenReturn(true);
         imageID = "agent:1.3.0-beta";
-        assertThrows(AgentSystemException.class, () -> dockerUtil.pullImage(imageID, containerID, registry));
+        assertThrows(AgentSystemException.class, () -> dockerUtil.pullImage(imageID, containerID, platform, registry));
     }
 
     /**

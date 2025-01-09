@@ -346,7 +346,7 @@ public class ContainerManagerTest {
             Mockito.when(microserviceManager.getRegistry(anyInt())).thenReturn(registry);
             Mockito.when(registry.getUrl()).thenReturn("from_cache");
             containerManager.execute(containerTask);
-            verify(dockerUtil, never()).pullImage(any(), any(), any());
+            verify(dockerUtil, never()).pullImage(any(), any(), any(), any());
             verify(dockerUtil).createContainer(any(), any());
             verify(microservice).setRebuild(anyBoolean());
             Mockito.verify(dockerUtil).getContainer(eq(microservice.getMicroserviceUuid()));
@@ -372,7 +372,7 @@ public class ContainerManagerTest {
             Mockito.when(microserviceManager.getRegistry(anyInt())).thenReturn(registry);
             Mockito.when(registry.getUrl()).thenReturn("url");
             containerManager.execute(containerTask);
-            verify(dockerUtil).pullImage(any(), any(), any());
+            verify(dockerUtil).pullImage(any(), any(), any(), any());
             verify(dockerUtil).createContainer(any(), any());
             verify(microservice).setRebuild(anyBoolean());
             Mockito.verify(dockerUtil).getContainer(eq(microservice.getMicroserviceUuid()));
@@ -398,7 +398,7 @@ public class ContainerManagerTest {
         Mockito.when(containerTask.getMicroserviceUuid()).thenReturn("uuid");
         Mockito.when(dockerUtil.getContainer(anyString())).thenReturn(optionalContainer);
         Mockito.when(dockerUtil.findLocalImage(anyString())).thenReturn(false);
-        Mockito.doThrow(mock(AgentSystemException.class)).when(dockerUtil).pullImage(any(), any(), any());
+        Mockito.doThrow(mock(AgentSystemException.class)).when(dockerUtil).pullImage(any(), any(), any(), any());
         Mockito.when(microserviceManager.getRegistry(anyInt())).thenReturn(registry);
         Mockito.when(registry.getUrl()).thenReturn("url");
         assertThrows(NotFoundException.class, () -> containerManager.execute(containerTask));
@@ -424,11 +424,11 @@ public class ContainerManagerTest {
             Mockito.when(containerTask.getMicroserviceUuid()).thenReturn("uuid");
             Mockito.when(dockerUtil.getContainer(anyString())).thenReturn(optionalContainer);
             Mockito.when(dockerUtil.findLocalImage(anyString())).thenReturn(true);
-            Mockito.doThrow(mock(AgentSystemException.class)).when(dockerUtil).pullImage(any(), any(), any());
+            Mockito.doThrow(mock(AgentSystemException.class)).when(dockerUtil).pullImage(any(), any(), any(), any());
             Mockito.when(microserviceManager.getRegistry(anyInt())).thenReturn(registry);
             Mockito.when(registry.getUrl()).thenReturn("url");
             containerManager.execute(containerTask);
-            verify(dockerUtil).pullImage(any(), any(), any());
+            verify(dockerUtil).pullImage(any(), any(), any(), any());
             verify(dockerUtil).createContainer(any(), any());
             verify(microservice).setRebuild(anyBoolean());
             Mockito.verify(LoggingService.class);
@@ -465,7 +465,7 @@ public class ContainerManagerTest {
             Mockito.when(microserviceManager.getRegistry(anyInt())).thenReturn(registry);
             Mockito.when(registry.getUrl()).thenReturn("url");
             containerManager.execute(containerTask);
-            verify(dockerUtil).pullImage(any(), any(), any());
+            verify(dockerUtil).pullImage(any(), any(), any(), any());
             verify(dockerUtil).createContainer(any(), any());
             verify(microservice).setRebuild(anyBoolean());
         } catch (Exception e) {
@@ -500,7 +500,7 @@ public class ContainerManagerTest {
             Mockito.when(microserviceManager.getRegistry(anyInt())).thenReturn(registry);
             Mockito.when(registry.getUrl()).thenReturn("url");
             containerManager.execute(containerTask);
-            verify(dockerUtil).pullImage(any(), any(), any());
+            verify(dockerUtil).pullImage(any(), any(), any(), any());
             verify(dockerUtil).createContainer(any(), any());
             verify(microservice).setRebuild(anyBoolean());
             Mockito.verify(LoggingService.class);
