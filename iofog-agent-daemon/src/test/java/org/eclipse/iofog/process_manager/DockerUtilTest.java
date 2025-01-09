@@ -240,7 +240,7 @@ public class DockerUtilTest {
             Mockito.when(mock.getStats()).thenReturn(statistics);
         });
         countDownLatchMockedConstruction = mockConstruction(CountDownLatch.class);
-        imageIDil = spy(DockerUtil.getInstance());
+        dockerUtil = spy(DockerUtil.getInstance());
     }
 
     @AfterEach
