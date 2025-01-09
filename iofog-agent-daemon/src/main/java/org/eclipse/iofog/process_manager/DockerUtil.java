@@ -529,9 +529,10 @@ public class DockerUtil {
      *
      * @param imageName - imageName of {@link Microservice}
      * @param registry  - {@link Registry} where image is placed
+     * @param platform  - platform of {@link Microservice}
      */
     @SuppressWarnings("resource")
-    public void pullImage(String imageName, String microserviceUuid, Registry registry) throws AgentSystemException {
+    public void pullImage(String imageName, String microserviceUuid, String platform, Registry registry) throws AgentSystemException {
         LoggingService.logInfo(MODULE_NAME, String.format("pull image name \"%s\" ", imageName));
         Map<String, ItemStatus> statuses = new HashMap();
         String tag = null, image;
@@ -556,6 +557,10 @@ public class DockerUtil {
                                             .withPassword(registry.getPassword())
                             );
             req.withTag(tag);
+            // Add platform if it's not null
+            if (platform != null) {
+                req.withPlatform(platform);
+            }
             PullImageResultCallback resultCallback = new PullImageResultCallback() {
                 @Override
                 public void onNext(PullResponseItem item) {
