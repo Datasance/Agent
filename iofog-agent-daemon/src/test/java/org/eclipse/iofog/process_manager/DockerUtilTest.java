@@ -89,6 +89,7 @@ public class DockerUtilTest {
     private ListContainersCmd listContainersCmd;
     private MicroserviceStatus microserviceStatus;
     private String containerID;
+    private String platform;
     private String imageID;
     private String ipAddress;
     private final String[] containerNames = {".iofog_containerName1",".iofog_containerName2"};
@@ -239,7 +240,7 @@ public class DockerUtilTest {
             Mockito.when(mock.getStats()).thenReturn(statistics);
         });
         countDownLatchMockedConstruction = mockConstruction(CountDownLatch.class);
-        dockerUtil = spy(DockerUtil.getInstance());
+        imageIDil = spy(DockerUtil.getInstance());
     }
 
     @AfterEach
