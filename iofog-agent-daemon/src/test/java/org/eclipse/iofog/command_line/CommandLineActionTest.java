@@ -79,7 +79,7 @@ public class CommandLineActionTest {
                 .thenReturn(new HashMap<>())
                 .thenThrow(new Exception("item not found or defined more than once"));
 
-        Mockito.when(CmdProperties.getVersion()).thenReturn("3.3.0");
+        Mockito.when(CmdProperties.getVersion()).thenReturn("3.3.1");
         Mockito.when(CmdProperties.getVersionMessage()).thenReturn(version);
         Mockito.when(CmdProperties.getDeprovisionMessage()).thenReturn("Deprovisioning from controller ... %s");
         Mockito.when(CmdProperties.getProvisionMessage()).thenReturn("Provisioning with key \"%s\" ... Result: %s");
