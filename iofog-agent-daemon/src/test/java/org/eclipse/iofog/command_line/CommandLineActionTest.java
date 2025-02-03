@@ -436,5 +436,5 @@ public class CommandLineActionTest {
             "\\n" +
             "Report bugs to: developer@datasance.com\\n" +
             "Datasance PoT docs: https://docs.datasance.com\\n" +
-            "For users with GitHub accounts, report bugs to: https://github.com/Datasance/Agent/issues");
+            "For users with GitHub accounts, report bugs to: https://github.com/Datasance/Agent/issues";
 }
