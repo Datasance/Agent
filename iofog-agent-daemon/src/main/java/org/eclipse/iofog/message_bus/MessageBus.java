@@ -210,7 +210,9 @@ public class MessageBus implements IOFogModule {
 			}
 			receivers.get(rec).close();
 			messageBusServer.removeConsumer(rec);
-			publishers.remove(rec);
+			// publishers.remove(rec);
+			receivers.remove(rec);
+
 		}
 
 		for (String newReceiver: newReceivers) {

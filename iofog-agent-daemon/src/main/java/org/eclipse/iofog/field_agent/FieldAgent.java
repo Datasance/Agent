@@ -362,7 +362,7 @@ public class FieldAgent implements IOFogModule {
                     try {
                         DockerPruningManager.getInstance().pruneAgent();
                     } catch (Exception e) {
-                        logError("Unable to update registries", e);
+                        logError("Unable to prune Agent", e);
                         resetChanges = false;
                     }
                 }
@@ -665,7 +665,7 @@ public class FieldAgent implements IOFogModule {
             logError("Can't send delete node command",
             		new AgentSystemException("Can't send delete node command", e));
         }
-        deProvision(false);
+        deProvision(true);
         logDebug("Finish deleting current fog node from controller and make it deprovision");
     }
 
@@ -678,6 +678,12 @@ public class FieldAgent implements IOFogModule {
         if (SystemUtils.IS_OS_WINDOWS) {
             return; // TODO implement
         }
+
+        String ioFogDaemon = System.getenv("IOFOG_DAEMON");
+		if ("container".equals(ioFogDaemon)) {
+            logWarning("Skipping reboot as iofog-agent running inside container");
+			return; // TODO implement
+		}
 
         CommandShellResultSet<List<String>, List<String>> result = CommandShellExecutor.executeCommand("shutdown -r now");
         if (result == null) {
@@ -1129,7 +1135,7 @@ public class FieldAgent implements IOFogModule {
         String checksum = checksum(data.toString());
         JsonObject object = Json.createObjectBuilder()
                 .add("checksum", checksum)
-                .add("timestamp", lastGetChangesList)
+                .add("timestamp", System.currentTimeMillis())
                 .add("data", data)
                 .build();
         try (JsonWriter writer = Json.createWriter(new OutputStreamWriter(new FileOutputStream(filename), UTF_8))) {

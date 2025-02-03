@@ -276,6 +276,24 @@ public class DockerUtil {
     }
 
     /**
+     * gets container image
+     *
+     * @param containerId
+     * @return container image
+     */
+
+     public String getInspectContainersImage(String containerId) {
+        try {
+            InspectContainerResponse inspectResponse = dockerClient.inspectContainerCmd(containerId).exec();
+            return inspectResponse.getConfig().getImage();
+        } catch (Exception e) {
+            logError(MODULE_NAME, "Error getting started time of container", 
+                    new AgentSystemException(e.getMessage(), e));
+        }
+        return null;
+    }
+
+    /**
      * returns a {@link Container} if exists
      *
      * @param microserviceUuid - name of {@link Container} (id of {@link Microservice})

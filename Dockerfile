@@ -154,6 +154,7 @@ COPY --from=ubi-dep /usr/lib64/libcap.so.2  /usr/lib64/
 COPY --from=ubi-dep /usr/lib64/libgcrypt.so.20  /usr/lib64/
 COPY --from=ubi-dep /usr/lib64/libgpg-error.so.0 /usr/lib64/
 COPY --from=ubi-dep /usr/lib64/liblzma.so.5 /usr/lib64/
+# COPY --from=ubi-dep /usr/lib64/libblkid.so.1 /usr/lib64/
 
 
 # Copy the iofog-agent user and related configurations
@@ -177,7 +178,7 @@ RUN true && \
     mv /etc/iofog-agent/config-production_new.xml /etc/iofog-agent/config-production.xml && \
     mv /etc/iofog-agent/config-switcher_new.xml /etc/iofog-agent/config-switcher.xml && \
     mv /etc/iofog-agent/cert_new.crt /etc/iofog-agent/cert.crt && \
-    </dev/urandom tr -dc A-Za-z0-9 | head -c32 > /etc/iofog-agent/local-api && \
+    # </dev/urandom tr -dc A-Za-z0-9 | head -c32 > /etc/iofog-agent/local-api && \
     mkdir -p /var/backups/iofog-agent && \
     mkdir -p /var/log/iofog-agent && \
     mkdir -p /var/lib/iofog-agent && \
@@ -199,8 +200,16 @@ RUN true && \
     chown :iofog-agent /usr/bin/iofog-agent && \
     true
 
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
-ENV TZ="Europe/Istanbul"
+COPY entrypoint.sh /etc/iofog-agent/entrypoint.sh
+RUN chmod +x /etc/iofog-agent/entrypoint.sh
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    TZ="Europe/Istanbul" \
+    IOFOG_DAEMON=container
 
-CMD [ "java", "-jar", "/usr/bin/iofog-agentd.jar", "start" ]
+COPY LICENSE /licenses/LICENSE
+LABEL org.opencontainers.image.description=agent
+LABEL org.opencontainers.image.source=https://github.com/datasance/agent
+LABEL org.opencontainers.image.licenses=EPL2.0
+
+CMD ["/etc/iofog-agent/entrypoint.sh"]

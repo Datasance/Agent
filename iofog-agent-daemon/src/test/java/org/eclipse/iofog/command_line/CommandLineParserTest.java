@@ -137,7 +137,7 @@ public class CommandLineParserTest {
             "                 -tz                     Set the device timeZone\\n" +
             "\\n" +
             "\\n" +
-            "Report bugs to: edgemaster@iofog.org\\n" +
-            "ioFog home page: http://iofog.org\\n" +
-            "For users with Eclipse accounts, report bugs to: https://bugs.eclipse.org/bugs/enter_bug.cgi?product=iofog";
+            "Report bugs to: developer@datasance.com\\n" +
+            "Datasance PoT docs: https://docs.datasance.com\\n" +
+            "For users with GitHub accounts, report bugs to: https://github.com/Datasance/Agent/issues");
 }

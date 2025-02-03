@@ -79,7 +79,7 @@ public class CommandLineActionTest {
                 .thenReturn(new HashMap<>())
                 .thenThrow(new Exception("item not found or defined more than once"));
 
-        Mockito.when(CmdProperties.getVersion()).thenReturn("3.3.1");
+        Mockito.when(CmdProperties.getVersion()).thenReturn("3.3.2");
         Mockito.when(CmdProperties.getVersionMessage()).thenReturn(version);
         Mockito.when(CmdProperties.getDeprovisionMessage()).thenReturn("Deprovisioning from controller ... %s");
         Mockito.when(CmdProperties.getProvisionMessage()).thenReturn("Provisioning with key \"%s\" ... Result: %s");
@@ -434,7 +434,7 @@ public class CommandLineActionTest {
             "                 -tz                     Set the device timeZone\\n" +
             "\\n" +
             "\\n" +
-            "Report bugs to: edgemaster@iofog.org\\n" +
-            "ioFog home page: http://iofog.org\\n" +
-            "For users with Eclipse accounts, report bugs to: https://bugs.eclipse.org/bugs/enter_bug.cgi?product=iofog";
+            "Report bugs to: developer@datasance.com\\n" +
+            "Datasance PoT docs: https://docs.datasance.com\\n" +
+            "For users with GitHub accounts, report bugs to: https://github.com/Datasance/Agent/issues");
 }

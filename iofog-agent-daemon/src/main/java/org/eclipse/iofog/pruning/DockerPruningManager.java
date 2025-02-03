@@ -26,6 +26,7 @@ import org.eclipse.iofog.utils.logging.LoggingService;
 import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -39,6 +40,7 @@ public class DockerPruningManager {
     private DockerUtil docker = DockerUtil.getInstance();
 
     private static DockerPruningManager instance;
+    private ScheduledFuture<?> futureTask;
 
     public static DockerPruningManager getInstance() {
         if (instance == null) {
@@ -59,6 +61,7 @@ public class DockerPruningManager {
         LoggingService.logInfo(MODULE_NAME, "Start docker pruning manager");
         scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleAtFixedRate(triggerPruneOnThresholdBreach, 0, 30, TimeUnit.MINUTES);
+        futureTask = scheduler.scheduleAtFixedRate(triggerPruneOnFrequency, Configuration.getDockerPruningFrequency(), Configuration.getDockerPruningFrequency(), TimeUnit.HOURS);
         LoggingService.logInfo(MODULE_NAME, "Docker pruning manager started");
     }
 
@@ -84,6 +87,27 @@ public class DockerPruningManager {
                     isPruning = false;
                     LoggingService.logInfo(MODULE_NAME, "Pruning of unwanted images as current system available disk percentage finished");
                 }
+            }
+        }
+    };
+
+    /**
+     * Trigger prune on available disk is equal to or less than threshold
+     */
+    private final Runnable triggerPruneOnFrequency = () -> {
+        if (!isPruning) {
+            try {
+                LoggingService.logInfo(MODULE_NAME, "Start docker pruning job");
+                isPruning = true;
+                Set<String> unwantedImages = getUnwantedImagesList();
+                if (unwantedImages.size() > 0) {
+                    removeImagesById(unwantedImages);
+                }
+            } catch (Exception e){
+                LoggingService.logError(MODULE_NAME,"Error in docker Pruning on frequency interval", new AgentSystemException(e.getMessage(), e));
+            } finally {
+                isPruning = false;
+                LoggingService.logInfo(MODULE_NAME, "Pruning of unwanted images as frequency interval finished");
             }
         }
     };
@@ -156,4 +180,15 @@ public class DockerPruningManager {
             return "\nFailure - not pruned.";
         }
     }
+
+    /**
+     * This method will reschedule "docker pruning freq" with the new param time
+     */
+    public void changePruningFreqInterval() {
+        if (futureTask != null) {
+            futureTask.cancel(true);
+        }
+        futureTask = scheduler.scheduleAtFixedRate(triggerPruneOnFrequency, Configuration.getDockerPruningFrequency() , Configuration.getDockerPruningFrequency(), TimeUnit.HOURS);
+    }
+
 }
