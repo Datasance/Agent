@@ -79,7 +79,7 @@ public class CommandLineActionTest {
                 .thenReturn(new HashMap<>())
                 .thenThrow(new Exception("item not found or defined more than once"));
 
-        Mockito.when(CmdProperties.getVersion()).thenReturn("3.3.0");
+        Mockito.when(CmdProperties.getVersion()).thenReturn("3.3.2");
         Mockito.when(CmdProperties.getVersionMessage()).thenReturn(version);
         Mockito.when(CmdProperties.getDeprovisionMessage()).thenReturn("Deprovisioning from controller ... %s");
         Mockito.when(CmdProperties.getProvisionMessage()).thenReturn("Provisioning with key \"%s\" ... Result: %s");
@@ -350,7 +350,7 @@ public class CommandLineActionTest {
             "0.00 MB\\nSystem Available Memory     : " +
             "0.00 MB\\nSystem Total CPU            : 0.00 %";
 
-    private String version = "ioFog 1 \n" +
+    private String version = "ioFog Agent 3.3.2 \n" +
             "Copyright (c) 2023 Datasance Teknoloji A.S. \n" +
             "Eclipse ioFog is provided under the Eclipse Public License 2.0 (EPL-2.0) \n" +
             "https://www.eclipse.org/legal/epl-v20.html";
@@ -428,13 +428,14 @@ public class CommandLineActionTest {
             "                 -ft <auto               Set fog type.\\n" +
             "                     /intel_amd/arm>     Use auto to detect fog type by system commands,\\n" +
             "                                         use arm or intel_amd to set it manually\\n" +
+            "                 -pf <#hours>            Set the docker pruning frequency.\n" +
             "                 -sec <on/off>           Set the secure mode without using ssl \\n" +
             "                                         certificates. \\n" +
             "                 -dev <on/off>           Set the developer's mode\\n" +
             "                 -tz                     Set the device timeZone\\n" +
             "\\n" +
             "\\n" +
-            "Report bugs to: edgemaster@iofog.org\\n" +
-            "ioFog home page: http://iofog.org\\n" +
-            "For users with Eclipse accounts, report bugs to: https://bugs.eclipse.org/bugs/enter_bug.cgi?product=iofog";
+            "Report bugs to: developer@datasance.com\\n" +
+            "Datasance PoT docs: https://docs.datasance.com\\n" +
+            "For users with GitHub accounts, report bugs to: https://github.com/Datasance/Agent/issues";
 }

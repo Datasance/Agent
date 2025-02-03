@@ -89,7 +89,7 @@ public class ContainerManager {
 		Registry registry = getRegistry(microservice);
 		if (!registry.getUrl().equals("from_cache") && pullImage){
 			try {
-				docker.pullImage(microservice.getImageName(), microservice.getMicroserviceUuid(), registry);
+				docker.pullImage(microservice.getImageName(), microservice.getMicroserviceUuid(), microservice.getPlatform(), registry);
 				StatusReporter.setProcessManagerStatus().setMicroservicesStatePercentage(microservice.getMicroserviceUuid(),
 						Constants.PERCENTAGE_COMPLETION);
 			} catch (Exception e) {

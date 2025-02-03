@@ -248,10 +248,26 @@ public class ProcessManager implements IOFogModule {
 		for (String uuid : allMicroserviceUuids) {
 			boolean isCurrentMicroserviceUuid = currentMicroserviceUuids.contains(uuid);
 			boolean isLatestMicroserviceUuid = latestMicroserviceUuids.contains(uuid);
-
-			if (isCurrentMicroserviceUuid && !isLatestMicroserviceUuid) {
+		
+			// Determine if the UUID corresponds to a system microservice
+			boolean isSystemMicroserviceUuid = false;
+			Optional<Container> containerOptional = docker.getContainer(uuid);
+			if (containerOptional.isPresent()) {
+				Container container = containerOptional.get();
+				String containerId = container.getId(); // Get container ID
+		
+				// Get container image using the containerId
+				String containerImage = docker.getInspectContainersImage(containerId);
+				if (containerImage != null) {
+					isSystemMicroserviceUuid = containerImage.equals(System.getenv("IOFOG_AGENT_IMAGE")) ||
+											   containerImage.equals(System.getenv("IOFOG_CONTROLLER_IMAGE"));
+				}
+			}
+		
+			// Perform actions based on the calculated flags
+			if (isCurrentMicroserviceUuid && !isLatestMicroserviceUuid && !isSystemMicroserviceUuid) {
 				oldAgentMicroserviceUuids.add(uuid);
-			} else if (!isCurrentMicroserviceUuid && !isLatestMicroserviceUuid) {
+			} else if (!isCurrentMicroserviceUuid && !isLatestMicroserviceUuid && !isSystemMicroserviceUuid) {
 				String containerName = DockerUtil.getIoFogContainerName(uuid);
 				Map<String, String> labels = runningContainersLabels.get(containerName);
 				if ((labels != null && labels.get("iofog-uuid") != "") || Configuration.isWatchdogEnabled()) {
