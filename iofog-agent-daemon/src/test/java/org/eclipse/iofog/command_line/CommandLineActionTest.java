@@ -350,7 +350,7 @@ public class CommandLineActionTest {
             "0.00 MB\\nSystem Available Memory     : " +
             "0.00 MB\\nSystem Total CPU            : 0.00 %";
 
-    private String version = "ioFog 1 \n" +
+    private String version = "ioFog Agent 3.3.2 \n" +
             "Copyright (c) 2023 Datasance Teknoloji A.S. \n" +
             "Eclipse ioFog is provided under the Eclipse Public License 2.0 (EPL-2.0) \n" +
             "https://www.eclipse.org/legal/epl-v20.html";
@@ -428,6 +428,7 @@ public class CommandLineActionTest {
             "                 -ft <auto               Set fog type.\\n" +
             "                     /intel_amd/arm>     Use auto to detect fog type by system commands,\\n" +
             "                                         use arm or intel_amd to set it manually\\n" +
+            "                 -pf <#hours>            Set the docker pruning frequency.\n" +
             "                 -sec <on/off>           Set the secure mode without using ssl \\n" +
             "                                         certificates. \\n" +
             "                 -dev <on/off>           Set the developer's mode\\n" +
