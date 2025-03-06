@@ -116,7 +116,7 @@ COPY --from=ubi-dep /usr/bin/gzip /usr/bin/
 COPY --from=ubi-dep /usr/bin/pgrep /usr/bin/
 COPY --from=ubi-dep /usr/bin/awk /usr/bin/
 COPY --from=ubi-dep /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/
-COPY --from=ubi-dep /etc/pki/tls/ca-bundle.crt /etc/pki/tls/
+COPY --from=ubi-dep /etc/pki/tls/certs/ca-bundle.crt /etc/pki/tls/certs/
 
 # Copy required shared libraries for curl grep awk
 COPY --from=ubi-dep /usr/lib64/libc.so.6 /usr/lib64/
