@@ -132,7 +132,7 @@ public class DockerPruningManager {
         LoggingService.logInfo(MODULE_NAME, "Total number of running microservices : " + microservices.size());
 
         // Removes the ioFog running containers from the images to be prune list
-        Set<String> imageIDsToBePruned = ioFogImages.stream().filter(im -> im.getRepoTags() != null)
+        Set<String> imageIDsToBePruned = ioFogImages.stream().filter(im -> im.getRepoTags() != null && im.getRepoTags().length > 0)
                 .filter(im -> microservices.stream()
                 .noneMatch(ms -> ms.getImageName().equals(im.getRepoTags()[0])))
                 .map(Image::getId)
