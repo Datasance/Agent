@@ -25,6 +25,7 @@ import com.github.dockerjava.core.DockerClientBuilder;
 import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.PullImageResultCallback;
+import com.github.dockerjava.api.model.Capability;
 import org.apache.commons.lang3.SystemUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.eclipse.iofog.exception.AgentSystemException;
@@ -730,13 +731,13 @@ public class DockerUtil {
             if(microservice.isRootHostAccess()){
                 hostConfig.withNetworkMode("host").withExtraHosts(hosts).withPrivileged(true);
             } else if(hosts[hosts.length - 1] != null) {
-                hostConfig.withExtraHosts(hosts).withPrivileged(true);
+                hostConfig.withExtraHosts(hosts).withPrivileged(false);
             }
         } else if (SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) {
             if(microservice.isRootHostAccess()){
                 hostConfig.withNetworkMode("host").withPrivileged(true);
             } else if(hosts[hosts.length - 1] != null) {
-                hostConfig.withExtraHosts(hosts).withPrivileged(true);
+                hostConfig.withExtraHosts(hosts).withPrivileged(false);
             }
         }
 
@@ -750,6 +751,24 @@ public class DockerUtil {
                     .withDriver("cdi")
                     .withDeviceIds(deviceIds);
             hostConfig.withDeviceRequests(Collections.singletonList(deviceRequest));
+        }
+
+        // if (microservice.getAnnotations() != null && !microservice.getAnnotations().isEmpty()) {
+        //     hostConfig.withAnnotations(microservice.getAnnotations());
+        // }
+
+        if (microservice.getCapAdd() != null && !microservice.getCapAdd().isEmpty()) {
+            Capability[] capabilities = microservice.getCapAdd().stream()
+                .map(Capability::valueOf)
+                .toArray(Capability[]::new);
+            hostConfig.withCapAdd(capabilities);
+        }
+
+        if (microservice.getCapDrop() != null && !microservice.getCapDrop().isEmpty()) {
+            Capability[] capabilities = microservice.getCapDrop().stream()
+                .map(Capability::valueOf)
+                .toArray(Capability[]::new);
+            hostConfig.withCapDrop(capabilities);
         }
 
         if (microservice.getArgs() != null && microservice.getArgs().size() > 0) {

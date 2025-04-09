@@ -41,6 +41,9 @@ public class Microservice {
     private List<EnvVar> envVars;
     private List<String> args;
     private List<String> cdiDevs;
+    private String annotations;
+    private List<String> capAdd;
+    private List<String> capDrop;
     private List<String> extraHosts;
     private boolean isConsumer;
 
@@ -193,6 +196,22 @@ public class Microservice {
     public List<String> getCdiDevs() { return cdiDevs; }
 
     public void setCdiDevs(List<String> cdiDevs) { this.cdiDevs = cdiDevs; }
+
+    public String getAnnotations() {
+        return annotations;
+    }
+
+    public void setAnnotations(String annotations) {
+        this.annotations = annotations;
+    }
+
+    public List<String> getCapAdd() { return capAdd; }
+
+    public void setCapAdd(List<String> capAdd) { this.capAdd = capAdd; }
+
+    public List<String> getCapDrop() { return capDrop; }
+
+    public void setCapDrop(List<String> capDrop) { this.capDrop = capDrop; }
 
     @Override
     public boolean equals(Object e) {
