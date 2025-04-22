@@ -95,8 +95,8 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS ubi-dep
 # Install necessary dependencies
 RUN true && \
     microdnf install -y ca-certificates shadow-utils gzip procps-ng && \
-    microdnf reinstall -y tzdata && \
-    microdnf clean all && \
+    microdnf install -y tzdata && microdnf reinstall -y tzdata\
+    microdnf clean all && \ 
     rm -rf /var/cache/* && \
     true
 

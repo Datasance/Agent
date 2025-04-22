@@ -1433,7 +1433,8 @@ public class FieldAgentTest {
      */
     public void mockConfiguration() {
         when(Configuration.getIofogUuid()).thenReturn("uuid");
-        when(Configuration.getAccessToken()).thenReturn("token");
+        // when(Configuration.getAccessToken()).thenReturn("token");
+        when(Configuration.getPrivateKey()).thenReturn("privateKey");
         when(Configuration.getControllerUrl()).thenReturn("http://controllerurl");
         when(Configuration.getNetworkInterface()).thenReturn("dynamic");
         when(Configuration.getDockerUrl()).thenReturn("getDockerUrl");

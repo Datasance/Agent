@@ -211,9 +211,12 @@ public class ConfigurationTest {
             assertEquals("", Configuration.getIofogUuid());
             Configuration.setIofogUuid("uuid");
             assertEquals( "uuid", Configuration.getIofogUuid());
-            assertEquals("", Configuration.getAccessToken());
-            Configuration.setAccessToken("token");
-            assertEquals( "token", Configuration.getAccessToken());
+            // assertEquals("", Configuration.getAccessToken());
+            // Configuration.setAccessToken("token");
+            // assertEquals( "token", Configuration.getAccessToken());
+            assertEquals("", Configuration.getPrivateKey());
+            Configuration.setPrivateKey("privateKey");
+            assertEquals( "privateKey", Configuration.getPrivateKey());
             Assertions.assertFalse(Configuration.isDevMode());
             Configuration.setDevMode(true);
             Assertions.assertTrue(Configuration.isDevMode());

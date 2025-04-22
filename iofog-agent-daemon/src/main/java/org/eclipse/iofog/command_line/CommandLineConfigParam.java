@@ -31,6 +31,7 @@ public enum CommandLineConfigParam {
 
     ACCESS_TOKEN("", "", "access_token", ""),
     IOFOG_UUID("", "", "iofog_uuid", ""),
+    PRIVATE_KEY("", "", "private_key", "privateKey"),
 
     DISK_CONSUMPTION_LIMIT ("10", "d","disk_consumption_limit", "diskLimit"),
     DISK_DIRECTORY ("/var/lib/iofog-agent/", "dl","disk_directory", "diskDirectory"),

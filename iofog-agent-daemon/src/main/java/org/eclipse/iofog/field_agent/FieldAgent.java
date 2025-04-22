@@ -37,6 +37,7 @@ import org.eclipse.iofog.status_reporter.StatusReporter;
 import org.eclipse.iofog.utils.Constants;
 import org.eclipse.iofog.utils.Constants.ControllerStatus;
 import org.eclipse.iofog.utils.Orchestrator;
+import org.eclipse.iofog.utils.JwtManager;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.functional.Pair;
 import org.eclipse.iofog.utils.logging.LoggingService;
@@ -1416,58 +1417,91 @@ public class FieldAgent implements IOFogModule {
         logInfo("Provisioning ioFog agent");
         JsonObject provisioningResult;
 
+        // Check if already provisioned
         if (!notProvisioned()) {
             try {
                 logInfo("Agent is already provisioned. Deprovisioning...");
                 StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
                 deProvision(false);
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                logError("Error during deprovisioning", e);
+                return buildProvisionFailResponse("Error during deprovisioning", e);
+            }
         }
 
         try {
-            provisioningLock.lock();
-            provisioningResult = orchestrator.provision(key);
-
-            microserviceManager.clear();
-            try{
-                ProcessManager.getInstance().deleteRemainingMicroservices();
-            } catch (Exception e) {
-                logError("Error deleting remaining microservices",
-                        new AgentSystemException(e.getMessage(), e));
+            // Try to acquire lock - if we can't get it, provisioning is already in progress
+            if (!provisioningLock.tryLock()) {
+                logWarning("Provisioning already in progress");
+                return buildProvisionFailResponse("Provisioning already in progress", null);
             }
-            StatusReporter.setFieldAgentStatus().setControllerStatus(OK);
-            Configuration.setIofogUuid(provisioningResult.getString("uuid"));
-            Configuration.setAccessToken(provisioningResult.getString("token"));
 
-            Configuration.saveConfigUpdates();
-            Configuration.updateConfigBackUpFile();
+            try {
+                // Perform provisioning
+                provisioningResult = orchestrator.provision(key);
+                
+                // Clear existing state
+                microserviceManager.clear();
+                try {
+                    ProcessManager.getInstance().deleteRemainingMicroservices();
+                } catch (Exception e) {
+                    logError("Error deleting remaining microservices", e);
+                }
 
-            postFogConfig();
-            loadRegistries(false);
-            List<Microservice> microservices = loadMicroservices(false);
-            processMicroserviceConfig(microservices);
-            processRoutes(microservices);
-            notifyModules();
-            loadEdgeResources(false);
+                // Set initial configuration
+                Configuration.setIofogUuid(provisioningResult.getString("uuid"));
+                Configuration.setPrivateKey(provisioningResult.getString("privateKey"));
+                Configuration.saveConfigUpdates();
+                Configuration.updateConfigBackUpFile();
 
-            sendHWInfoFromHalToController();
+                // Verify JWT generation works
+                try {
+                    if (JwtManager.generateJwt() == null) {
+                        logError("Failed to initialize JWT Manager", new AgentSystemException("Failed to initialize JWT Manager"));
+                        // Clean up on JWT failure
+                        Configuration.setIofogUuid("");
+                        Configuration.setPrivateKey("");
+                        Configuration.saveConfigUpdates();
+                        StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
+                        return buildProvisionFailResponse("Failed to initialize JWT Manager - Missing required dependencies", null);
+                    }
+                } catch (NoClassDefFoundError e) {
+                    logError("Missing required dependencies for JWT generation", new AgentSystemException(e.getMessage(), e));
+                    // Clean up on dependency error
+                    Configuration.setIofogUuid("");
+                    Configuration.setPrivateKey("");
+                    Configuration.saveConfigUpdates();
+                    StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
+                    return buildProvisionFailResponse("Missing required dependencies for JWT generation", new AgentSystemException(e.getMessage(), e));
+                }
 
-            postStatusHelper();
+                // Set status to OK since provisioning succeeded
+                StatusReporter.setFieldAgentStatus().setControllerStatus(OK);
 
-            logInfo("Provisioning success");
+                // Only do essential post-provisioning operations
+                try {
+                    postFogConfig();
+                } catch (Exception e) {
+                    logError("Error posting fog config", e);
+                    // Don't fail provisioning for this
+                }
+
+                logInfo("Provisioning success");
+                return provisioningResult;
+
+            } finally {
+                provisioningLock.unlock();
+            }
 
         } catch (CertificateException | SSLHandshakeException e) {
             verificationFailed(e);
-            provisioningResult = buildProvisionFailResponse("Certificate error", e);
+            return buildProvisionFailResponse("Certificate error", e);
         } catch (UnknownHostException e) {
             StatusReporter.setFieldAgentStatus().setControllerVerified(false);
-            provisioningResult = buildProvisionFailResponse("Connection error: unable to connect to fog controller.", e);
+            return buildProvisionFailResponse("Connection error: unable to connect to fog controller.", e);
         } catch (Exception e) {
-            provisioningResult = buildProvisionFailResponse(e.getMessage(), e);
-        } finally {
-            provisioningLock.unlock();
+            return buildProvisionFailResponse(e.getMessage(), e);
         }
-        return provisioningResult;
     }
 
     private JsonObject buildProvisionFailResponse(String message, Exception e) {
@@ -1531,7 +1565,8 @@ public class FieldAgent implements IOFogModule {
             boolean configUpdated = true;
             try {
                 Configuration.setIofogUuid("");
-                Configuration.setAccessToken("");
+                // Configuration.setAccessToken("");
+                Configuration.setPrivateKey("");
                 Configuration.saveConfigUpdates();
             } catch (Exception e) {
                 configUpdated = false;
@@ -1596,9 +1631,21 @@ public class FieldAgent implements IOFogModule {
      */
     public void start() {
         logDebug("Start the Field Agent");
-        if (isNullOrEmpty(Configuration.getIofogUuid()) || isNullOrEmpty(Configuration.getAccessToken()))
+        
+        // Initialize JWT Manager first if we have the private key
+        if (!isNullOrEmpty(Configuration.getIofogUuid()) && !isNullOrEmpty(Configuration.getPrivateKey())) {
+            // Try to generate JWT to verify private key is valid
+            if (JwtManager.generateJwt() == null) {
+                logError("Failed to initialize JWT Manager", new AgentSystemException("Failed to initialize JWT Manager"));
+                StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
+            } else {
+                StatusReporter.setFieldAgentStatus().setControllerStatus(OK);
+            }
+        } else {
             StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
+        }
 
+        // Initialize other components
         microserviceManager = MicroserviceManager.getInstance();
         orchestrator = new Orchestrator();
         sshProxyManager = new SshProxyManager(new SshConnection());
@@ -1614,6 +1661,7 @@ public class FieldAgent implements IOFogModule {
             loadEdgeResources(!isConnected);
         }
 
+        // Start background threads
         new Thread(pingController, Constants.FIELD_AGENT_PING_CONTROLLER).start();
         new Thread(getChangesList, Constants.FIELD_AGENT_GET_CHANGE_LIST).start();
         new Thread(postStatus, Constants.FIELD_AGENT_POST_STATUS).start();
@@ -1710,6 +1758,24 @@ public class FieldAgent implements IOFogModule {
         return response.isPresent() && !response.get().toString().isEmpty();
     }
 
+    private Optional<HttpURLConnection> sendHttpGetReq(String spec) {
+    	logDebug("Start sending Http request");
+        HttpURLConnection connection;
+        try {
+            URL url = new URL(spec);
+            connection = (HttpURLConnection) url.openConnection();
+            if(connection != null){
+                connection.setRequestMethod(HttpMethod.GET);
+                connection.getResponseCode();
+            }
+        } catch (IOException exc) {
+            connection = null;
+            logDebug("HAL is not enabled for this Iofog Agent at the moment");
+        }
+        logDebug("Finished sending Http request");
+        return Optional.ofNullable(connection);
+    }
+
     private Optional<StringBuilder> getResponse(String spec) {
     	logDebug("Start get response");
         Optional<HttpURLConnection> connection = sendHttpGetReq(spec);
@@ -1730,24 +1796,6 @@ public class FieldAgent implements IOFogModule {
         }
         logDebug("Finished get response");
         return Optional.ofNullable(content);
-    }
-
-    private Optional<HttpURLConnection> sendHttpGetReq(String spec) {
-    	logDebug("Start sending Http request");
-        HttpURLConnection connection;
-        try {
-            URL url = new URL(spec);
-            connection = (HttpURLConnection) url.openConnection();
-            if(connection != null){
-                connection.setRequestMethod(HttpMethod.GET);
-                connection.getResponseCode();
-            }
-        } catch (IOException exc) {
-            connection = null;
-            logDebug("HAL is not enabled for this Iofog Agent at the moment");
-        }
-        logDebug("Finished sending Http request");
-        return Optional.ofNullable(connection);
     }
 
     private void createImageSnapshot() {

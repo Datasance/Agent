@@ -79,8 +79,9 @@ public final class Configuration {
     private static Document configSwitcherFile;
     private static ConfigSwitcherState currentSwitcherState;
     //Directly configurable params
-    private static String accessToken;
+    // private static String accessToken;
     private static String iofogUuid;
+    private static String privateKey;
     private static String controllerUrl;
     private static String controllerCert;
     private static String networkInterface;
@@ -757,6 +758,10 @@ public final class Configuration {
                         LoggingService.logInfo(MODULE_NAME, "Setting timeZone");
                         setTimeZone(value);
                         break;
+                    // case PRIVATE_KEY:
+                    //     LoggingService.logInfo(MODULE_NAME, "Setting privateKey");
+                    //     setPrivateKey(value);
+                    //     break;
                     default:
                         throw new ConfigurationItemException("Invalid parameter -" + option);
                 }
@@ -999,7 +1004,7 @@ public final class Configuration {
         configElement = (Element) getFirstNodeByTagName("config", configFile);
 
         setIofogUuid(getNode(IOFOG_UUID, configFile));
-        setAccessToken(getNode(ACCESS_TOKEN, configFile));
+        setPrivateKey(getNode(PRIVATE_KEY, configFile));
         setControllerUrl(getNode(CONTROLLER_URL, configFile));
         setControllerCert(getNode(CONTROLLER_CERT, configFile));
         setNetworkInterface(getNode(NETWORK_INTERFACE, configFile));
@@ -1100,9 +1105,9 @@ public final class Configuration {
         LoggingService.logDebug(MODULE_NAME, "Finished create config property");
     }
 
-    public static String getAccessToken() {
-        return accessToken;
-    }
+    // public static String getAccessToken() {
+    //     return accessToken;
+    // }
 
     public static String getControllerUrl() {
         return controllerUrl;
@@ -1162,12 +1167,12 @@ public final class Configuration {
         LoggingService.logDebug(MODULE_NAME, "Finished set Log Disk Directory");
     }
 
-    public static void setAccessToken(String accessToken) throws ConfigurationItemException {
-    	LoggingService.logDebug(MODULE_NAME, "Start set access token");
-        setNode(ACCESS_TOKEN, accessToken, configFile, configElement);
-        Configuration.accessToken = accessToken;
-        LoggingService.logDebug(MODULE_NAME, "Finished set access token");
-    }
+    // public static void setAccessToken(String accessToken) throws ConfigurationItemException {
+    // 	LoggingService.logDebug(MODULE_NAME, "Start set access token");
+    //     setNode(ACCESS_TOKEN, accessToken, configFile, configElement);
+    //     Configuration.accessToken = accessToken;
+    //     LoggingService.logDebug(MODULE_NAME, "Finished set access token");
+    // }
 
     public static void setIofogUuid(String iofogUuid) throws ConfigurationItemException {
     	LoggingService.logDebug(MODULE_NAME, "Start set Iofog uuid");
@@ -1512,5 +1517,16 @@ public final class Configuration {
         Configuration.timeZone = timeZone;
         LoggingService.logDebug(MODULE_NAME, "Finished set timeZone");
 
+    }
+
+    public static String getPrivateKey() {
+        return privateKey;
+    }
+
+    public static void setPrivateKey(String privateKey) throws ConfigurationItemException {
+        LoggingService.logDebug(MODULE_NAME, "Start set private key");
+            setNode(PRIVATE_KEY, privateKey, configFile, configElement);
+            Configuration.privateKey = privateKey;
+            LoggingService.logDebug(MODULE_NAME, "Finished set private key");
     }
 }

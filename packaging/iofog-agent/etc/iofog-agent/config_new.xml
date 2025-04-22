@@ -13,7 +13,7 @@
   -->
 
 <config>
-	<access_token/>
+	<private_key/>
 	<router_host />
 	<router_port/>
 

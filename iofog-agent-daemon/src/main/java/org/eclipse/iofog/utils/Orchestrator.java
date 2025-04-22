@@ -34,6 +34,7 @@ import org.eclipse.iofog.network.IOFogNetworkInterfaceManager;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
 import org.eclipse.iofog.utils.trustmanager.TrustManagers;
+import org.eclipse.iofog.utils.JwtManager;
 
 import jakarta.json.Json;
 import jakarta.json.JsonException;
@@ -72,7 +73,8 @@ public class Orchestrator {
     private static final int CONNECTION_TIMEOUT = 10000;
     private String controllerUrl;
     private String iofogUuid;
-    private String iofogAccessToken;
+    // private String iofogAccessToken;
+    private String iofogPrivateKey;
     private Certificate controllerCert;
     private CloseableHttpClient client;
 
@@ -321,9 +323,14 @@ public class Orchestrator {
 
         req.setConfig(config);
 
-        String token = Configuration.getAccessToken();
-        if (!StringUtils.isEmpty(token)) {
-            req.addHeader(new BasicHeader("Authorization", token));
+        // Generate and add JWT token only for non-provisioning requests
+        if (!uri.toString().endsWith("provision")) {
+            String jwtToken = JwtManager.generateJwt();
+            if (jwtToken == null) {
+                logError(MODULE_NAME, "Failed to generate JWT token", new AgentSystemException("Failed to generate JWT token"));
+                throw new AuthenticationException("Failed to generate JWT token");
+            }
+            req.addHeader(new BasicHeader("Authorization", "Bearer " + jwtToken));
         }
 
         UUID requestId = UUID.randomUUID();
@@ -350,8 +357,8 @@ public class Orchestrator {
                 case 400:
                     throw new BadRequestException(errorMessage);
                 case 401:
-                    logWarning(MODULE_NAME, "Invalid authentication ioFog token, switching controller status to Not provisioned");
 //                    FieldAgent.getInstance().deProvision(true);
+                    logWarning(MODULE_NAME, "Invalid JWT token, switching controller status to Not provisioned");
                     throw new AuthenticationException(errorMessage);
                 case 403:
                     throw new ForbiddenException(errorMessage);
@@ -402,7 +409,8 @@ public class Orchestrator {
     public void update() {
     	logDebug(MODULE_NAME, "Start updates local variables when changes applied");
         iofogUuid = Configuration.getIofogUuid();
-        iofogAccessToken = Configuration.getAccessToken();
+        // iofogAccessToken = Configuration.getAccessToken();
+        iofogPrivateKey = Configuration.getPrivateKey();
         controllerUrl = Configuration.getControllerUrl();
         // disable certificates for secure mode
         boolean secure = true;
