@@ -125,6 +125,9 @@ public final class Configuration {
     private static int monitorSshTunnelStatusFreqSeconds;
     private static String routerHost;
     private static int routerPort;
+    private static String caCert;
+    private static String tlsCert;
+    private static String tlsKey;
     private static boolean devMode;
 
     public static boolean isDevMode() {
@@ -758,6 +761,18 @@ public final class Configuration {
                         LoggingService.logInfo(MODULE_NAME, "Setting timeZone");
                         setTimeZone(value);
                         break;
+                    case CA_CERT:
+                        LoggingService.logInfo(MODULE_NAME, "Setting CA cert");
+                        setCaCert(value);
+                        break;
+                    case TLS_CERT:
+                        LoggingService.logInfo(MODULE_NAME, "Setting TLS cert");
+                        setTlsCert(value);
+                        break;
+                    case TLS_KEY:
+                        LoggingService.logInfo(MODULE_NAME, "Setting TLS key");
+                        setTlsKey(value);
+                        break;
                     // case PRIVATE_KEY:
                     //     LoggingService.logInfo(MODULE_NAME, "Setting privateKey");
                     //     setPrivateKey(value);
@@ -1034,6 +1049,9 @@ public final class Configuration {
         setReadyToUpgradeScanFrequency(Integer.parseInt(getNode(READY_TO_UPGRADE_SCAN_FREQUENCY, configFile)));
         setDevMode(!getNode(DEV_MODE, configFile).equals("off"));
         configureTimeZone(getNode(TIME_ZONE, configFile));
+        setCaCert(getNode(CA_CERT, configFile));
+        setTlsCert(getNode(TLS_CERT, configFile));
+        setTlsKey(getNode(TLS_KEY, configFile));
 
         try {
             updateConfigFile(getCurrentConfigPath(), configFile);
@@ -1319,6 +1337,9 @@ public final class Configuration {
         result.append(buildReportLine(getConfigParamMessage(DEV_MODE), (devMode ? "on" : "off")));
         // timeZone
         result.append(buildReportLine(getConfigParamMessage(TIME_ZONE), timeZone));
+        // result.append(buildReportLine(getConfigParamMessage(CA_CERT), caCert != null ? "configured" : "not configured"));
+        // result.append(buildReportLine(getConfigParamMessage(TLS_CERT), tlsCert != null ? "configured" : "not configured"));
+        // result.append(buildReportLine(getConfigParamMessage(TLS_KEY), tlsKey != null ? "configured" : "not configured"));
         LoggingService.logDebug(MODULE_NAME, "Finished get Config Report");
         
         return result.toString();
@@ -1528,5 +1549,29 @@ public final class Configuration {
             setNode(PRIVATE_KEY, privateKey, configFile, configElement);
             Configuration.privateKey = privateKey;
             LoggingService.logDebug(MODULE_NAME, "Finished set private key");
+    }
+
+    public static String getCaCert() {
+        return caCert;
+    }
+
+    public static void setCaCert(String caCert) {
+        Configuration.caCert = caCert;
+    }
+
+    public static String getTlsCert() {
+        return tlsCert;
+    }
+
+    public static void setTlsCert(String tlsCert) {
+        Configuration.tlsCert = tlsCert;
+    }
+
+    public static String getTlsKey() {
+        return tlsKey;
+    }
+
+    public static void setTlsKey(String tlsKey) {
+        Configuration.tlsKey = tlsKey;
     }
 }

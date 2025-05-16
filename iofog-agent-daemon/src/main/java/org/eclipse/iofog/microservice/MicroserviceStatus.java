@@ -37,6 +37,7 @@ public class MicroserviceStatus {
 	private String containerId;
 	private float percentage;
 	private String errorMessage;
+	private String ipAddress;
 
 	public String getErrorMessage() {
 		return errorMessage;
@@ -111,6 +112,14 @@ public class MicroserviceStatus {
 
 	public void setPercentage(float percentage) {
 		this.percentage = percentage;
+	}
+
+	public String getIpAddress() {
+		return ipAddress;
+	}
+
+	public void setIpAddress(String ipAddress) {
+		this.ipAddress = ipAddress;
 	}
 
 	/**

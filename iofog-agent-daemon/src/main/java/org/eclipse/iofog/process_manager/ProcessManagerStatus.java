@@ -65,7 +65,8 @@ public class ProcessManagerStatus {
                         .add("startTime", status.getStartTime())
                         .add("operatingDuration", status.getOperatingDuration())
                         .add("cpuUsage", nf.format(status.getCpuUsage()))
-                        .add("memoryUsage", String.format("%d", status.getMemoryUsage()));
+                        .add("memoryUsage", String.format("%d", status.getMemoryUsage()))
+                        .add("ipAddress", status.getIpAddress() != null ? status.getIpAddress() : "UNKNOWN");
             }
             if (status != null && status.getErrorMessage() != null) {
                 objectBuilder.add("errorMessage", status.getErrorMessage());

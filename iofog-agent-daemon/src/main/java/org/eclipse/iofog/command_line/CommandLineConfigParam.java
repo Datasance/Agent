@@ -60,7 +60,10 @@ public enum CommandLineConfigParam {
     AVAILABLE_DISK_THRESHOLD ("20", "dt", "available_disk_threshold", "availableDiskThreshold"),
     READY_TO_UPGRADE_SCAN_FREQUENCY ("24", "uf", "upgrade_scan_frequency", "readyToUpgradeScanFrequency"),
     DEV_MODE ("off", "dev", "dev_mode", ""),
-    TIME_ZONE("", "tz", "time_zone", "timeZone");
+    TIME_ZONE("", "tz", "time_zone", "timeZone"),
+    CA_CERT("", "", "ca_cert", "caCert"),
+    TLS_CERT("", "", "tls_cert", "tlsCert"),
+    TLS_KEY("", "", "tls_key", "tlsKey");
 
     private final String commandName;
     private final String xmlTag;

@@ -21,6 +21,8 @@ import java.util.List;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
+import javax.net.ssl.SSLContext;
+import java.security.SecureRandom;
 
 public final class TrustManagers {
 
@@ -106,6 +108,27 @@ public final class TrustManagers {
         };
 
         return new javax.net.ssl.TrustManager[]{combinedTrustManager};
+    }
+
+    /**
+     * Creates an SSL socket factory that skips certificate verification
+     * This is used when we need to make an insecure connection to get a new certificate
+     * 
+     * @return SSLConnectionSocketFactory configured to skip verification
+     * @throws Exception if SSL context creation fails
+     */
+    public static org.apache.http.conn.ssl.SSLConnectionSocketFactory getInsecureSocketFactory() throws Exception {
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, new TrustManager[] { new X509TrustManager() {
+            public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+            public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+            public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+        }}, new SecureRandom());
+        
+        return new org.apache.http.conn.ssl.SSLConnectionSocketFactory(
+            sslContext,
+            new org.apache.http.conn.ssl.NoopHostnameVerifier()
+        );
     }
 
 }

@@ -35,6 +35,7 @@ import org.eclipse.iofog.status_reporter.StatusReporter;
 import org.eclipse.iofog.utils.Constants;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
+import org.eclipse.iofog.network.IOFogNetworkInterfaceManager;
 
 import jakarta.json.Json;
 import jakarta.json.JsonObject;
@@ -228,23 +229,38 @@ public class DockerUtil {
      * @param id - id of {@link Container}
      * @return ip address
      */
-    @SuppressWarnings("deprecation")
-	public String getContainerIpAddress(String id) throws  AgentSystemException {
-    	LoggingService.logDebug(MODULE_NAME , "Get Container IpAddress for container id : " + id);
+    public String getContainerIpAddress(String id) throws AgentSystemException {
+        LoggingService.logDebug(MODULE_NAME, "Get Container IpAddress for container id : " + id);
         try {
             InspectContainerResponse inspect = dockerClient.inspectContainerCmd(id).exec();
-            return inspect.getNetworkSettings().getIpAddress();
+            
+            // Check if container is using host network mode
+            if ("host".equals(inspect.getHostConfig().getNetworkMode())) {
+                return IOFogNetworkInterfaceManager.getInstance().getCurrentIpAddress();
+            }
+            
+            // For containers with their own network namespace
+            Map<String, ContainerNetwork> networks = inspect.getNetworkSettings().getNetworks();
+            if (networks != null && networks.containsKey("bridge")) {
+                return networks.get("bridge").getIpAddress();
+            }
+            // Fallback to the first available network if bridge is not found
+            if (networks != null && !networks.isEmpty()) {
+                return networks.values().iterator().next().getIpAddress();
+            }
+            // If no networks found, return null or throw an exception
+            return null;
         } catch (NotModifiedException exp) {
             logError(MODULE_NAME, "Error getting container ipAddress", 
-            		new AgentSystemException(exp.getMessage(), exp));
+                new AgentSystemException(exp.getMessage(), exp));
             throw new AgentSystemException(exp.getMessage(), exp);
-        }catch (NotFoundException exp) {
+        } catch (NotFoundException exp) {
             logError(MODULE_NAME, "Error getting container ipAddress", 
-            		new AgentSystemException(exp.getMessage(), exp));
+                new AgentSystemException(exp.getMessage(), exp));
             throw new AgentSystemException(exp.getMessage(), exp);
-        }catch (Exception exp) {
+        } catch (Exception exp) {
             logError(MODULE_NAME, "Error getting container ipAddress", 
-            		new AgentSystemException(exp.getMessage(), exp));
+                new AgentSystemException(exp.getMessage(), exp));
             throw new AgentSystemException(exp.getMessage(), exp);
         }
     }
@@ -357,6 +373,12 @@ public class DockerUtil {
                 MicroserviceStatus existingStatus = StatusReporter.setProcessManagerStatus().getMicroserviceStatus(microserviceUuid);
                 result.setPercentage(existingStatus.getPercentage());
                 result.setErrorMessage(existingStatus.getErrorMessage());
+                try {
+                    result.setIpAddress(getContainerIpAddress(containerId));
+                } catch (AgentSystemException e) {
+                    LoggingService.logWarning(MODULE_NAME, "Error getting IP address for container " + containerId + ": " + e.getMessage());
+                    result.setIpAddress("UNKNOWN");
+                }
             }
         } catch (Exception e) {
             LoggingService.logWarning(MODULE_NAME, "Error occurred while getting container status of microservice uuid" + microserviceUuid +

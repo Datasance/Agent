@@ -67,6 +67,10 @@ public class MessageBus implements IOFogModule {
 
 	private long lastSpeedTime, lastSpeedMessageCount;
 
+	private String caCert;
+	private String tlsCert;
+	private String tlsKey;
+
 	private MessageBus() {}
 
 	@Override
@@ -298,10 +302,19 @@ public class MessageBus implements IOFogModule {
 	}
 
 	private void getRouterAddress() throws Exception {
+		logDebug("Starting to get router address and TLS configuration");
 		Orchestrator orchestrator = new Orchestrator();
 		JsonObject configs = orchestrator.request("config", RequestType.GET, null, null);
 		routerHost = configs.getString("routerHost");
 		routerPort = configs.getJsonNumber("routerPort").intValue();
+		caCert = configs.containsKey("caCert") ? configs.getString("caCert") : null;
+		tlsCert = configs.containsKey("tlsCert") ? configs.getString("tlsCert") : null;
+		tlsKey = configs.containsKey("tlsKey") ? configs.getString("tlsKey") : null;
+		
+		logDebug("Router configuration retrieved - Host: " + routerHost + ", Port: " + routerPort);
+		logDebug("TLS Configuration - CA Cert: " + (caCert != null ? "configured" : "not configured") + 
+			", TLS Cert: " + (tlsCert != null ? "configured" : "not configured") + 
+			", TLS Key: " + (tlsKey != null ? "configured" : "not configured"));
 	}
 
 	public void startServer() throws Exception {
@@ -309,7 +322,7 @@ public class MessageBus implements IOFogModule {
 
 		getRouterAddress();
 
-		messageBusServer.startServer(routerHost, routerPort);
+		messageBusServer.startServer(routerHost, routerPort, caCert, tlsCert, tlsKey);
 		messageBusServer.initialize();
 
 		logInfo("MESSAGE BUS SERVER STARTED");

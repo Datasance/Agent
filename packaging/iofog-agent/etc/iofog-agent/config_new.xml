@@ -68,4 +68,7 @@
 
 	<upgrade_scan_frequency>24</upgrade_scan_frequency>
 	<time_zone/>
+	<ca_cert/>
+	<tls_cert/>
+	<tls_key/>
 </config>
