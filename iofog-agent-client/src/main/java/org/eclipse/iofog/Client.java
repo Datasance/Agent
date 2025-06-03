@@ -224,10 +224,14 @@ public class Client {
             "                 -idc <on/off>           Set the mode on which any not\\n" +
             "                                         registered docker container will be\\n" +
             "										  shut down\\n" +
-            "                 -gps <auto/off          Set gps location of fog.\\n" +
+            "                 -gps <auto/dynamic/off   Set gps location of fog.\\n" +
             "                      /#GPS DD.DDD(lat), Use auto to get coordinates by IP,\\n" +
             "                            DD.DDD(lon)  use off to forbid gps,\\n" +
             "                                         use GPS coordinates in DD format to set them manually\\n" +
+            "                 -gpsd <device>          Set the GPS device to use (example: /dev/ttyUSB0)\\n" +
+            "                 -gpsf <#seconds>        Set the GPS scan frequency\\n" +
+            "                 -eg <on/off>            Set the edge guard mode\\n" +
+            "                 -egf <#seconds>         Set the edge guard frequency\\n" +
             "                 -ft <auto               Set fog type.\\n" +
             "                     /intel_amd/arm>     Use auto to detect fog type by system commands,\\n" +
             "                                         use arm or intel_amd to set it manually\\n" +

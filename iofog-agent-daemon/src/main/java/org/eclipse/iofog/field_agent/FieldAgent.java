@@ -41,6 +41,9 @@ import org.eclipse.iofog.utils.JwtManager;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.functional.Pair;
 import org.eclipse.iofog.utils.logging.LoggingService;
+import org.eclipse.iofog.volume_mount.VolumeMountManager;
+import org.eclipse.iofog.process_manager.ExecSessionCallback;
+import org.eclipse.iofog.process_manager.ExecSessionStatus;
 
 import jakarta.json.*;
 import javax.net.ssl.SSLHandshakeException;
@@ -92,6 +95,10 @@ public class FieldAgent implements IOFogModule {
     private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
     private ScheduledFuture<?> futureTask;
     private EdgeResourceManager edgeResourceManager;
+    private VolumeMountManager volumeMountManager;
+
+    private final Map<String, String> activeExecSessions = new ConcurrentHashMap<>();
+    private final Map<String, ExecSessionCallback> execCallbacks = new ConcurrentHashMap<>();
 
     private FieldAgent() {
         lastGetChangesList = 0;
@@ -130,6 +137,8 @@ public class FieldAgent implements IOFogModule {
                         "UNKNOWN" : StatusReporter.getSupervisorStatus().getDaemonStatus().toString())
                 .add("daemonOperatingDuration", StatusReporter.getSupervisorStatus().getOperationDuration())
                 .add("daemonLastStart", StatusReporter.getSupervisorStatus().getDaemonLastStart())
+                .add("warningMessage", StatusReporter.getSupervisorStatus().getWarningMessage() == null ?
+                        "" : StatusReporter.getSupervisorStatus().getWarningMessage())
                 .add("memoryUsage", StatusReporter.getResourceConsumptionManagerStatus().getMemoryUsage())
                 .add("diskUsage", StatusReporter.getResourceConsumptionManagerStatus().getDiskUsage())
                 .add("cpuUsage", StatusReporter.getResourceConsumptionManagerStatus().getCpuUsage())
@@ -162,6 +171,8 @@ public class FieldAgent implements IOFogModule {
                         "UNKNOWN" : getVersion())
                 .add("isReadyToUpgrade", StatusReporter.getFieldAgentStatus().isReadyToUpgrade())
                 .add("isReadyToRollback", StatusReporter.getFieldAgentStatus().isReadyToRollback())
+                .add("activeVolumeMounts", StatusReporter.getVolumeMountManagerStatus().getActiveMounts())
+                .add("volumeMountLastUpdate", StatusReporter.getVolumeMountManagerStatus().getLastUpdate())
                 .build();
     }
 
@@ -188,9 +199,9 @@ public class FieldAgent implements IOFogModule {
     }
 
     /**
-     * sends IOFog instance status to IOFog controller
+     * posts ioFog status to ioFog controller
      */
-    private void postStatusHelper() {
+    public void postStatusHelper() {
         logDebug("posting ioFog status");
         try {
             JsonObject status = getFogStatus();
@@ -306,11 +317,14 @@ public class FieldAgent implements IOFogModule {
     }
 
     private final Future<Boolean> processChanges(JsonObject changes) {
+        logDebug("Starting processChanges with changes: " + changes.toString());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         return executor.submit(() -> {
             boolean resetChanges = true;
+            logDebug("Processing changes with initialization flag: " + initialization);
 
             if (changes.getBoolean("deleteNode",false) && !initialization) {
+                logDebug("Processing deleteNode change");
                 try {
                     deleteNode();
                 } catch (Exception e) {
@@ -319,6 +333,7 @@ public class FieldAgent implements IOFogModule {
                 }
             } else {
                 if (changes.getBoolean("reboot",false) && !initialization) {
+                    logDebug("Processing reboot change");
                     try {
                         reboot();
                     } catch (Exception e) {
@@ -327,6 +342,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("isImageSnapshot",false) && !initialization) {
+                    logDebug("Processing imageSnapshot change");
                     try {
                         createImageSnapshot();
                     } catch (Exception e) {
@@ -335,6 +351,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("config",false) && !initialization) {
+                    logDebug("Processing config change");
                     try {
                         getFogConfig();
                     } catch (Exception e) {
@@ -343,6 +360,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("version",false) && !initialization) {
+                    logDebug("Processing version change");
                     try {
                         changeVersion();
                     } catch (Exception e) {
@@ -351,6 +369,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("registries",false) || initialization) {
+                    logDebug("Processing registries change");
                     try {
                         loadRegistries(false);
                         ProcessManager.getInstance().update();
@@ -360,6 +379,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("prune", false) && !initialization) {
+                    logDebug("Processing prune change");
                     try {
                         DockerPruningManager.getInstance().pruneAgent();
                     } catch (Exception e) {
@@ -368,15 +388,23 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("microserviceConfig",false) || changes.getBoolean("microserviceList",false) ||
-                        changes.getBoolean("routing",false) || initialization) {
+                        changes.getBoolean("routing",false) || changes.getBoolean("execSessions",false) || initialization) {
+                    logDebug("Processing microservice related changes - microserviceConfig: " + changes.getBoolean("microserviceConfig",false) + 
+                            ", microserviceList: " + changes.getBoolean("microserviceList",false) + 
+                            ", routing: " + changes.getBoolean("routing",false) + 
+                            ", execSessions: " + changes.getBoolean("execSessions",false));
+                    logDebug("Changes object structure: " + changes.toString());
                     boolean microserviceConfig = changes.getBoolean("microserviceConfig");
                     boolean routing = changes.getBoolean("routing");
+                    boolean execSessions = changes.getBoolean("execSessions");
                     int defaultFreq = Configuration.getStatusFrequency();
                     Configuration.setStatusFrequency(1);
                     try {
                         List<Microservice> microservices = loadMicroservices(false);
+                        logDebug("Loaded " + microservices.size() + " microservices");
 
                         if (microserviceConfig) {
+                            logDebug("Processing microservice config changes");
                             try {
                                 processMicroserviceConfig(microservices);
                                 LocalApi.getInstance().update();
@@ -387,6 +415,7 @@ public class FieldAgent implements IOFogModule {
                         }
 
                         if (routing) {
+                            logDebug("Processing routing changes");
                             try {
                                 processRoutes(microservices);
                                 if (!changes.getBoolean("routerChanged",false) || initialization) {
@@ -394,6 +423,16 @@ public class FieldAgent implements IOFogModule {
                                 }
                             } catch (Exception e) {
                                 logError("Unable to update microservices routes", e);
+                                resetChanges = false;
+                            }
+                        }
+
+                        if (execSessions) {
+                            logDebug("Processing exec sessions changes");
+                            try {
+                                handleExecSessions(microservices);
+                            } catch (Exception e) {
+                                logError("Unable to handle exec sessions", e);
                                 resetChanges = false;
                             }
                         }
@@ -406,6 +445,7 @@ public class FieldAgent implements IOFogModule {
                 }
 
                 if (changes.getBoolean("tunnel",false) && !initialization) {
+                    logDebug("Processing tunnel change");
                     try {
                         sshProxyManager.update(getProxyConfig());
                     } catch (Exception e) {
@@ -414,6 +454,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("diagnostics",false) && !initialization) {
+                    logDebug("Processing diagnostics change");
                     try {
                         updateDiagnostics();
                     } catch (Exception e) {
@@ -422,6 +463,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("routerChanged",false) && !initialization) {
+                    logDebug("Processing routerChanged change");
                     try {
                         MessageBus.getInstance().update();
                     } catch (Exception e) {
@@ -430,6 +472,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("linkedEdgeResources",false) && !initialization) {
+                    logDebug("Processing linkedEdgeResources change");
                     boolean linkedEdgeResources = changes.getBoolean("linkedEdgeResources");
                     try {
                         if (linkedEdgeResources) {
@@ -441,7 +484,21 @@ public class FieldAgent implements IOFogModule {
                         resetChanges = false;
                     }
                 }
+                if (changes.getBoolean("volumeMounts",false) || initialization) {
+                    logDebug("Processing volumeMounts change");
+                    try {
+                        JsonObject result = orchestrator.request("volumeMounts", RequestType.GET, null, null);
+                        if (result.containsKey("volumeMounts")) {
+                            JsonArray volumeMounts = result.getJsonArray("volumeMounts");
+                            volumeMountManager.processVolumeMountChanges(volumeMounts);
+                        }
+                    } catch (Exception e) {
+                        logError("Unable to process volume mount changes", e);
+                        resetChanges = false;
+                    }
+                }
             }
+            logDebug("Finished processing changes with resetChanges: " + resetChanges);
             return resetChanges;
         });
     }
@@ -604,16 +661,18 @@ public class FieldAgent implements IOFogModule {
                     continue;
                 }
 
-
                 JsonObject result;
                 try {
+                    logDebug("Requesting changes from controller");
                     result = orchestrator.request("config/changes", RequestType.GET, null, null);
+                    logDebug("Received changes from controller: " + result.toString());
                 } catch (CertificateException | SSLHandshakeException e) {
                     verificationFailed(e);
                     logError("Unable to get changes due to broken certificate",
-                    		new AgentSystemException(e.getMessage(), e));
+                            new AgentSystemException(e.getMessage(), e));
                     continue;
                 } catch (SocketTimeoutException e) {
+                    logDebug("Socket timeout while getting changes, updating network interface");
                     IOFogNetworkInterfaceManager.getInstance().updateIOFogNetworkInterface();
                     continue;
                 } catch (Exception e) {
@@ -621,35 +680,40 @@ public class FieldAgent implements IOFogModule {
                     continue;
                 }
 
-
                 StatusReporter.setFieldAgentStatus().setLastCommandTime(lastGetChangesList);
 
                 String lastUpdated = result.getString("lastUpdated", null);
+                logDebug("Processing changes with lastUpdated: " + lastUpdated);
                 boolean resetChanges;
                 Future<Boolean> changesProcessor = processChanges(result);
 
                 try {
+                    logDebug("Waiting for changes processing to complete");
                     resetChanges = changesProcessor.get(30, TimeUnit.SECONDS);
+                    logDebug("Changes processing completed with resetChanges: " + resetChanges);
                 } catch (Exception e) {
+                    logError("Error waiting for changes processing", e);
                     resetChanges = false;
                     changesProcessor.cancel(true);
                 }
 
                 if (lastUpdated != null && resetChanges) {
-                    logDebug("Resetting config changes flags");
+                    logDebug("Resetting config changes flags with lastUpdated: " + lastUpdated);
                     try {
                         JsonObject req = Json.createObjectBuilder()
                                 .add("lastUpdated", lastUpdated)
                                 .build();
                         orchestrator.request("config/changes", RequestType.PATCH, null, req);
+                        logDebug("Successfully reset config changes flags");
                     } catch (Exception e) {
                         logError("Resetting config changes has failed", e);
                     }
                 }
 
                 initialization = initialization && !resetChanges;
+                logDebug("Finished getChangesList cycle with initialization: " + initialization);
             } catch (Exception e) {
-            	logError("Error getting changes list ", new AgentSystemException(e.getMessage(), e));
+                logError("Error getting changes list ", new AgentSystemException(e.getMessage(), e));
             }
             logDebug("Finish get IOFog changes list from IOFog controller");
         }
@@ -952,6 +1016,11 @@ public class FieldAgent implements IOFogModule {
             microservice.setRoutes(getStringList(routesValue));
 
             microservice.setConsumer(jsonObj.getBoolean("isConsumer"));
+            microservice.setRouter(jsonObj.getBoolean("isRouter"));
+            if (jsonObj.getBoolean("isRouter")) {
+                Configuration.setRouterUuid(jsonObj.getString("uuid"));
+            }
+            microservice.setExecEnabled(jsonObj.getBoolean("execEnabled"));
 
             JsonValue portMappingValue = jsonObj.get("portMappings");
             if (!portMappingValue.getValueType().equals(JsonValue.ValueType.NULL)) {
@@ -1020,6 +1089,9 @@ public class FieldAgent implements IOFogModule {
 
             JsonValue extraHostsValue = jsonObj.get("extraHosts");
             microservice.setExtraHosts(getStringList(extraHostsValue));
+
+            microservice.setPidMode(jsonObj.getString("pidMode"));
+            microservice.setIpcMode(jsonObj.getString("ipcMode"));
 
             try {
                 LoggingService.setupMicroserviceLogger(microservice.getMicroserviceUuid(), microservice.getLogSize());
@@ -1215,6 +1287,18 @@ public class FieldAgent implements IOFogModule {
                 boolean watchdogEnabled = configs.containsKey(WATCHDOG_ENABLED.getJsonProperty()) ?
                         configs.getBoolean(WATCHDOG_ENABLED.getJsonProperty()) :
                         WATCHDOG_ENABLED.getDefaultValue().equalsIgnoreCase("OFF") ? false : true;
+                int edgeGuardFrequency = configs.containsKey(EDGE_GUARD_FREQUENCY.getJsonProperty()) ?
+                        configs.getInt(EDGE_GUARD_FREQUENCY.getJsonProperty()) :
+                        Integer.parseInt(EDGE_GUARD_FREQUENCY.getDefaultValue());
+                String gpsDevice = configs.containsKey(GPS_DEVICE.getJsonProperty()) ?
+                        configs.getString(GPS_DEVICE.getJsonProperty()) :
+                        GPS_DEVICE.getDefaultValue();
+                int gpsScanFrequency = configs.containsKey(GPS_SCAN_FREQUENCY.getJsonProperty()) ?
+                        configs.getInt(GPS_SCAN_FREQUENCY.getJsonProperty()) :
+                        Integer.parseInt(GPS_SCAN_FREQUENCY.getDefaultValue());
+                String gpsMode = configs.containsKey(GPS_MODE.getJsonProperty()) ?
+                        configs.getString(GPS_MODE.getJsonProperty()) :
+                        GPS_MODE.getDefaultValue();
                 double latitude = configs.containsKey("latitude") ?
                         configs.getJsonNumber("latitude").doubleValue() :
                         0;
@@ -1283,6 +1367,18 @@ public class FieldAgent implements IOFogModule {
 
                 if (Configuration.isWatchdogEnabled() != watchdogEnabled)
                     instanceConfig.put(WATCHDOG_ENABLED.getCommandName(), watchdogEnabled ? "on" : "off");
+
+                if ((Configuration.getEdgeGuardFrequency() != edgeGuardFrequency) && (edgeGuardFrequency >= 1))
+                instanceConfig.put(EDGE_GUARD_FREQUENCY.getCommandName(), edgeGuardFrequency);
+
+                if (Configuration.getGpsDevice() != gpsDevice)
+                    instanceConfig.put(GPS_DEVICE.getCommandName(), gpsDevice);
+
+                if (!Configuration.getGpsMode().equals(gpsMode))
+                    instanceConfig.put(GPS_MODE.getCommandName(), gpsMode);
+
+                if (Configuration.getGpsScanFrequency() != gpsScanFrequency)
+                    instanceConfig.put(GPS_SCAN_FREQUENCY.getCommandName(), gpsScanFrequency);
 
                 if (Configuration.getGpsCoordinates() != null && !Configuration.getGpsCoordinates().equals(gpsCoordinates)) {
                     instanceConfig.put(GPS_MODE.getCommandName(), gpsCoordinates);
@@ -1366,6 +1462,9 @@ public class FieldAgent implements IOFogModule {
                 .add(CHANGE_FREQUENCY.getJsonProperty(), Configuration.getChangeFrequency())
                 .add(DEVICE_SCAN_FREQUENCY.getJsonProperty(), Configuration.getDeviceScanFrequency())
                 .add(WATCHDOG_ENABLED.getJsonProperty(), Configuration.isWatchdogEnabled())
+                .add(EDGE_GUARD_FREQUENCY.getJsonProperty(), Configuration.getEdgeGuardFrequency())
+                .add(GPS_DEVICE.getJsonProperty(), Configuration.getGpsDevice())
+                .add(GPS_SCAN_FREQUENCY.getJsonProperty(), Configuration.getGpsScanFrequency())
                 .add(GPS_MODE.getJsonProperty(), Configuration.getGpsMode() == null ? "UNKNOWN" : Configuration.getGpsMode().name().toLowerCase())
                 .add("latitude", latitude)
                 .add("longitude", longitude)
@@ -1587,6 +1686,14 @@ public class FieldAgent implements IOFogModule {
                 logError("Error stopping running microservices",
                         new AgentSystemException(e.getMessage(), e));
             }
+            // Clear volume mounts
+            try {
+                volumeMountManager.clear();
+            } catch (Exception e) {
+                logError("Error clearing volume mounts",
+                        new AgentSystemException(e.getMessage(), e));
+            }
+
             notifyModules();
             logInfo("Finished Deprovisioning : Success - tokens, identifiers and keys removed");
         } finally {
@@ -1650,7 +1757,7 @@ public class FieldAgent implements IOFogModule {
         orchestrator = new Orchestrator();
         sshProxyManager = new SshProxyManager(new SshConnection());
         edgeResourceManager = EdgeResourceManager.getInstance();
-
+        volumeMountManager = VolumeMountManager.getInstance();
         boolean isConnected = ping();
         getFogConfig();
         if (!notProvisioned()) {
@@ -1670,6 +1777,7 @@ public class FieldAgent implements IOFogModule {
         StatusReporter.setFieldAgentStatus().setReadyToUpgrade(VersionHandler.isReadyToUpgrade());
         StatusReporter.setFieldAgentStatus().setReadyToRollback(VersionHandler.isReadyToRollback());
         futureTask = scheduler.scheduleAtFixedRate(getAgentReadyToUpgradeStatus, 0, Configuration.getReadyToUpgradeScanFrequency(), TimeUnit.HOURS);
+        Configuration.startGpsDeviceHandler();
         logDebug("Field Agent started");
     }
 
@@ -1876,5 +1984,69 @@ public class FieldAgent implements IOFogModule {
             futureTask.cancel(true);
         }
         futureTask = scheduler.scheduleAtFixedRate(getAgentReadyToUpgradeStatus, 0, Configuration.getReadyToUpgradeScanFrequency(), TimeUnit.HOURS);
+    }
+
+    private void handleExecSessions(List<Microservice> microservices) {
+        logDebug("Start handling exec sessions");
+        
+        for (Microservice microservice : microservices) {
+            if (!microservice.isExecEnabled()) {
+                // If exec was disabled, kill any existing session
+                String existingExecId = getCurrentExecSessionId(microservice.getMicroserviceUuid());
+                if (existingExecId != null) {
+                    try {
+                        ProcessManager.getInstance().killExecSession(existingExecId);
+                        activeExecSessions.remove(microservice.getMicroserviceUuid());
+                        execCallbacks.remove(microservice.getMicroserviceUuid());
+                    } catch (Exception e) {
+                        logError("Failed to kill exec session for microservice: " + microservice.getMicroserviceUuid(), e);
+                    }
+                }
+                continue;
+            }
+
+            try {
+                // Get current exec session status if any exists
+                String execId = getCurrentExecSessionId(microservice.getMicroserviceUuid());
+                
+                if (execId != null) {
+                    // Check if existing session is still valid
+                    ExecSessionStatus status = ProcessManager.getInstance().getExecSessionStatus(execId);
+                    if (status == null || !status.isRunning()) {
+                        // Only create new session if current one is not running
+                        activeExecSessions.remove(microservice.getMicroserviceUuid());
+                        execCallbacks.remove(microservice.getMicroserviceUuid());
+                    } else {
+                        // Session is running, keep it
+                        continue;
+                    }
+                }
+
+                // Create new exec session with fallback shell command
+                String[] command = {"sh", "-c", "clear; (bash || ash || sh)"};
+                ExecSessionCallback callback = new ExecSessionCallback(
+                    new ByteArrayOutputStream(), // stdin
+                    new ByteArrayOutputStream(), // stdout
+                    new ByteArrayOutputStream()  // stderr
+                );
+                String newExecId = ProcessManager.getInstance().createExecSession(microservice.getMicroserviceUuid(), command, callback);
+                
+                // Store the new session info
+                activeExecSessions.put(microservice.getMicroserviceUuid(), newExecId);
+                execCallbacks.put(microservice.getMicroserviceUuid(), callback);
+                
+            } catch (Exception e) {
+                logError("Failed to handle exec session for microservice: " + microservice.getMicroserviceUuid(), e);
+            }
+        }
+        
+        logDebug("Finished handling exec sessions");
+    }
+
+    private String getCurrentExecSessionId(String microserviceUuid) {
+        LoggingService.logDebug(MODULE_NAME, "Getting current exec session ID for microservice: " + microserviceUuid);
+        String execId = activeExecSessions.get(microserviceUuid);
+        LoggingService.logDebug(MODULE_NAME, "Found exec session ID: " + execId);
+        return execId;
     }
 }

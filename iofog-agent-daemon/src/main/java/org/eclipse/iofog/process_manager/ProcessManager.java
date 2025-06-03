@@ -488,4 +488,43 @@ public class ProcessManager implements IOFogModule {
 
 		StatusReporter.setSupervisorStatus().setModuleStatus(PROCESS_MANAGER, ModulesStatus.RUNNING);
 	}
+
+	/**
+	 * Creates an exec session for a microservice
+	 * @param microserviceUuid - UUID of the microservice
+	 * @param command - Command to execute
+	 * @param callback - Callback for exec session
+	 * @return exec session ID
+	 */
+	public String createExecSession(String microserviceUuid, String[] command, ExecSessionCallback callback) {
+		LoggingService.logInfo(MODULE_NAME, "Creating exec session for microservice: " + microserviceUuid);
+		ContainerTask task = new ContainerTask(CREATE_EXEC, microserviceUuid, command, callback);
+		addTask(task);
+		return task.getExecId();
+	}
+
+	/**
+	 * Gets the status of an exec session
+	 * @param execId - ID of the exec session
+	 * @return exec session status
+	 */
+	public ExecSessionStatus getExecSessionStatus(String execId) {
+		LoggingService.logDebug(MODULE_NAME, "Getting status for exec session: " + execId);
+		try {
+			return containerManager.getExecSessionStatus(execId);
+		} catch (Exception e) {
+			LoggingService.logError(MODULE_NAME, "Error getting exec session status", e);
+			return new ExecSessionStatus(false, null);
+		}
+	}
+
+	/**
+	 * Kills an exec session
+	 * @param execId - ID of the exec session
+	 */
+	public void killExecSession(String execId) {
+		LoggingService.logInfo(MODULE_NAME, "Killing exec session: " + execId);
+		ContainerTask task = new ContainerTask(KILL_EXEC, execId, true);
+		addTask(task);
+	}
 }

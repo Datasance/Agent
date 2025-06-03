@@ -46,6 +46,10 @@ public class Microservice {
     private List<String> capDrop;
     private List<String> extraHosts;
     private boolean isConsumer;
+    private boolean isRouter;
+    private String pidMode;
+    private String ipcMode;
+    private boolean execEnabled;
 
     private boolean delete;
     private boolean deleteWithCleanup;
@@ -145,6 +149,14 @@ public class Microservice {
         this.rootHostAccess = rootHostAccess;
     }
 
+    public boolean isExecEnabled() {
+        return execEnabled;
+    }
+
+    public void setExecEnabled(boolean execEnabled) {
+        this.execEnabled = execEnabled;
+    }
+
     public long getLogSize() {
         return logSize;
     }
@@ -240,6 +252,30 @@ public class Microservice {
 
     public void setConsumer(boolean consumer) {
         isConsumer = consumer;
+    }
+
+    public boolean isRouter() {
+        return isRouter;
+    }
+
+    public void setRouter(boolean router) {
+        isRouter = router;
+    }
+
+    public String getPidMode() {
+        return pidMode;
+    }
+
+    public void setPidMode(String pidMode) {
+        this.pidMode = pidMode;
+    }
+
+    public String getIpcMode() {
+        return ipcMode;
+    }
+
+    public void setIpcMode(String ipcMode) {
+        this.ipcMode = ipcMode;
     }
 
     public List<String> getExtraHosts() {

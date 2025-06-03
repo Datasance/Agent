@@ -61,8 +61,20 @@ public class DockerPruningManager {
         LoggingService.logInfo(MODULE_NAME, "Start docker pruning manager");
         scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleAtFixedRate(triggerPruneOnThresholdBreach, 0, 30, TimeUnit.MINUTES);
-        futureTask = scheduler.scheduleAtFixedRate(triggerPruneOnFrequency, Configuration.getDockerPruningFrequency(), Configuration.getDockerPruningFrequency(), TimeUnit.HOURS);
-        LoggingService.logInfo(MODULE_NAME, "Docker pruning manager started");
+        
+        // Only schedule frequency-based pruning if frequency is positive
+        long pruningFrequency = Configuration.getDockerPruningFrequency();
+        if (pruningFrequency > 0) {
+            futureTask = scheduler.scheduleAtFixedRate(
+                triggerPruneOnFrequency, 
+                pruningFrequency, 
+                pruningFrequency, 
+                TimeUnit.HOURS
+            );
+            LoggingService.logInfo(MODULE_NAME, "Docker pruning manager started with frequency: " + pruningFrequency + " hours");
+        } else {
+            LoggingService.logInfo(MODULE_NAME, "Docker pruning manager started without frequency-based pruning (frequency set to 0)");
+        }
     }
 
     /**
@@ -208,8 +220,21 @@ public class DockerPruningManager {
     public void changePruningFreqInterval() {
         if (futureTask != null) {
             futureTask.cancel(true);
+            futureTask = null;
         }
-        futureTask = scheduler.scheduleAtFixedRate(triggerPruneOnFrequency, Configuration.getDockerPruningFrequency() , Configuration.getDockerPruningFrequency(), TimeUnit.HOURS);
+        
+        long pruningFrequency = Configuration.getDockerPruningFrequency();
+        if (pruningFrequency > 0) {
+            futureTask = scheduler.scheduleAtFixedRate(
+                triggerPruneOnFrequency, 
+                pruningFrequency, 
+                pruningFrequency, 
+                TimeUnit.HOURS
+            );
+            LoggingService.logInfo(MODULE_NAME, "Docker pruning frequency updated to: " + pruningFrequency + " hours");
+        } else {
+            LoggingService.logInfo(MODULE_NAME, "Docker pruning frequency set to 0 - frequency-based pruning disabled");
+        }
     }
 
 }

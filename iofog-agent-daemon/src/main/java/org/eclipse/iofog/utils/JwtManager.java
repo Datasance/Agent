@@ -46,7 +46,7 @@ public class JwtManager {
                     // Parse the base64-encoded JWK
                     byte[] keyBytes = Base64.getDecoder().decode(base64Key);
                     String jwkJson = new String(keyBytes);
-                    LoggingService.logDebug(MODULE_NAME, "Parsing JWK: " + jwkJson);
+                    // LoggingService.logDebug(MODULE_NAME, "Parsing JWK: " + jwkJson);
                     
                     // Parse and validate the JWK
                     keyPair = OctetKeyPair.parse(jwkJson);

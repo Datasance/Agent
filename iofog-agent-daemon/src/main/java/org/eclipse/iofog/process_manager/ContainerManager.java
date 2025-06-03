@@ -25,6 +25,8 @@ import org.eclipse.iofog.utils.logging.LoggingService;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import static org.eclipse.iofog.microservice.Microservice.deleteLock;
+import com.github.dockerjava.api.model.Frame;
+import org.eclipse.iofog.process_manager.ExecSessionCallback;
 
 /**
  * provides methods to manage Docker containers
@@ -253,6 +255,46 @@ public class ContainerManager {
 				case STOP:
 					stopContainerByMicroserviceUuid(task.getMicroserviceUuid());
 					break;
+				case CREATE_EXEC:
+					if (microserviceOptional.isPresent()) {
+						ExecSessionCallback pmCallback = task.getCallback();
+						// Create a new DockerUtil.ExecSessionCallback that forwards to the ProcessManager callback
+						DockerUtil.ExecSessionCallback dockerCallback = docker.new ExecSessionCallback(
+							"iofog_" + task.getMicroserviceUuid(), // Use a unique ID for the exec session
+							30 // 30 minutes timeout
+						) {
+							@Override
+							public void onNext(Frame frame) {
+								if (frame != null) {
+									try {
+										// Let the ProcessManager callback handle the frame
+										pmCallback.onNext(frame);
+									} catch (Exception e) {
+										LoggingService.logError(MODULE_NAME, "Error processing frame", e);
+									}
+								}
+							}
+
+							@Override
+							public void onError(Throwable throwable) {
+								LoggingService.logError(MODULE_NAME, "Exec session error", throwable);
+								pmCallback.onError(throwable);
+							}
+
+							@Override
+							public void onComplete() {
+								pmCallback.onComplete();
+							}
+						};
+						createExecSession(task.getMicroserviceUuid(), task.getCommand(), dockerCallback);
+					}
+					break;
+				case KILL_EXEC:
+					killExecSession(task.getExecId());
+					break;
+				case GET_EXEC_STATUS:
+					getExecSessionStatus(task.getExecId());
+					break;
 			}
 		} else {
 			LoggingService.logError(MODULE_NAME, "Container Task cannot be null",
@@ -267,5 +309,52 @@ public class ContainerManager {
 
 	private void setMicroserviceStatus(String uuid, MicroserviceState state) {
 		StatusReporter.setProcessManagerStatus().setMicroservicesState(uuid, state);
+	}
+
+	/**
+	 * Creates and starts an exec session in a container
+	 * 
+	 * @param microserviceUuid - UUID of the microservice
+	 * @param command - Command to execute
+	 * @param callback - Callback to handle session I/O
+	 * @return String - Exec session ID
+	 * @throws Exception if session creation fails
+	 */
+	public String createExecSession(String microserviceUuid, String[] command, DockerUtil.ExecSessionCallback callback) throws Exception {
+		LoggingService.logInfo(MODULE_NAME, "Creating exec session for microservice: " + microserviceUuid);
+		Optional<Container> containerOptional = docker.getContainer(microserviceUuid);
+		if (!containerOptional.isPresent()) {
+			throw new Exception("Container not found for microservice: " + microserviceUuid);
+		}
+		String execId = docker.createExecSession(containerOptional.get().getId(), command);
+		docker.startExecSession(execId, callback);
+		LoggingService.logDebug(MODULE_NAME, "Started exec session: " + execId);
+		return execId;
+	}
+
+	/**
+	 * Gets the status of an exec session
+	 * 
+	 * @param execId - ID of the exec session
+	 * @return ExecSessionStatus - Status of the exec session
+	 * @throws Exception if status check fails
+	 */
+	public ExecSessionStatus getExecSessionStatus(String execId) throws Exception {
+		LoggingService.logDebug(MODULE_NAME, "Getting status for exec session: " + execId);
+		ExecSessionStatus status = docker.getExecSessionStatus(execId);
+		LoggingService.logDebug(MODULE_NAME, "Exec session status: " + (status != null ? status.toString() : "null"));
+		return status;
+	}
+
+	/**
+	 * Kills an exec session
+	 * 
+	 * @param execId - ID of the exec session to kill
+	 * @throws Exception if session kill fails
+	 */
+	public void killExecSession(String execId) throws Exception {
+		LoggingService.logDebug(MODULE_NAME, "Killing exec session: " + execId);
+		docker.killExecSession(execId);
+		LoggingService.logDebug(MODULE_NAME, "Successfully killed exec session: " + execId);
 	}
 }

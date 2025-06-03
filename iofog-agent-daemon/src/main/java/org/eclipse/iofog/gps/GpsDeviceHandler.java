@@ -1,0 +1,126 @@
+package org.eclipse.iofog.gps;
+
+import org.eclipse.iofog.gps.nmea.NmeaMessage;
+import org.eclipse.iofog.gps.nmea.NmeaParser;
+import org.eclipse.iofog.utils.configuration.Configuration;
+import org.eclipse.iofog.utils.logging.LoggingService;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Handles communication with GPS device and updates configuration with coordinates
+ */
+public class GpsDeviceHandler {
+    private static final String MODULE_NAME = "GPS Device Handler";
+    private static GpsDeviceHandler instance;
+    private final ScheduledExecutorService scheduler;
+    private ScheduledFuture<?> scheduledTask;
+    private BufferedReader deviceReader;
+    private boolean isRunning;
+
+    private GpsDeviceHandler() {
+        this.scheduler = Executors.newSingleThreadScheduledExecutor();
+        this.isRunning = false;
+    }
+
+    public static synchronized GpsDeviceHandler getInstance() {
+        if (instance == null) {
+            instance = new GpsDeviceHandler();
+        }
+        return instance;
+    }
+
+    /**
+     * Start reading from GPS device and updating coordinates
+     */
+    public void start() {
+        if (isRunning) {
+            return;
+        }
+
+        try {
+            String devicePath = Configuration.getGpsDevice();
+            if (devicePath == null || devicePath.isEmpty()) {
+                LoggingService.logError(MODULE_NAME, "GPS device path not configured", new Exception("GPS device path not configured"));
+                return;
+            }
+
+            deviceReader = new BufferedReader(new FileReader(devicePath));
+            isRunning = true;
+
+            // Schedule reading task based on configured frequency
+            long scanFrequency = Configuration.getGpsScanFrequency();
+            scheduledTask = scheduler.scheduleAtFixedRate(
+                this::readAndUpdateCoordinates,
+                0,
+                scanFrequency,
+                TimeUnit.SECONDS
+            );
+
+            LoggingService.logInfo(MODULE_NAME, "Started GPS device handler");
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error starting GPS device handler: " + e.getMessage(), e);
+            stop();
+        }
+    }
+
+    /**
+     * Stop reading from GPS device
+     */
+    public void stop() {
+        if (!isRunning) {
+            return;
+        }
+
+        if (scheduledTask != null) {
+            scheduledTask.cancel(true);
+            scheduledTask = null;
+        }
+
+        if (deviceReader != null) {
+            try {
+                deviceReader.close();
+            } catch (IOException e) {
+                LoggingService.logError(MODULE_NAME, "Error closing GPS device: " + e.getMessage(), e);
+            }
+            deviceReader = null;
+        }
+
+        isRunning = false;
+        LoggingService.logInfo(MODULE_NAME, "Stopped GPS device handler");
+    }
+
+    /**
+     * Read from GPS device and update coordinates if valid
+     */
+    private void readAndUpdateCoordinates() {
+        if (!isRunning || deviceReader == null) {
+            return;
+        }
+
+        try {
+            String message = deviceReader.readLine();
+            if (message == null) {
+                return;
+            }
+
+            NmeaMessage nmeaMessage = NmeaParser.parse(message);
+            if (nmeaMessage.isValid()) {
+                String coordinates = String.format("%.5f,%.5f",
+                    nmeaMessage.getLatitude(),
+                    nmeaMessage.getLongitude()
+                );
+                Configuration.setGpsCoordinates(coordinates);
+                LoggingService.logDebug(MODULE_NAME, "Updated GPS coordinates: " + coordinates);
+            }
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error reading GPS coordinates: " + e.getMessage(), e);
+        }
+    }
+} 

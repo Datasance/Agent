@@ -34,6 +34,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.eclipse.iofog.utils.Constants.*;
 import static org.eclipse.iofog.utils.Constants.ModulesStatus.RUNNING;
 import static org.eclipse.iofog.utils.Constants.ModulesStatus.STARTING;
+import org.eclipse.iofog.edge_guard.EdgeGuardManager;
 
 /**
  * Supervisor module
@@ -102,6 +103,9 @@ public class Supervisor implements IOFogModule {
         StatusReporter.setSupervisorStatus().setDaemonStatus(RUNNING);
 		logDebug("Started Supervisor");
 		DockerPruningManager.getInstance().start();
+		EdgeGuardManager.getInstance().start();
+        
+        
         operationDuration();
     }
 

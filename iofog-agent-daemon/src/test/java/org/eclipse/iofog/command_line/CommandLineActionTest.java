@@ -90,7 +90,7 @@ public class CommandLineActionTest {
                 .thenReturn(new HashMap<>())
                 .thenThrow(new Exception("item not found or defined more than once"));
 
-        Mockito.when(CmdProperties.getVersion()).thenReturn("3.4.0");
+        Mockito.when(CmdProperties.getVersion()).thenReturn("3.5.0");
         Mockito.when(CmdProperties.getVersionMessage()).thenReturn(version);
         Mockito.when(CmdProperties.getDeprovisionMessage()).thenReturn("Deprovisioning from controller ... %s");
         Mockito.when(CmdProperties.getProvisionMessage()).thenReturn("Provisioning with key \"%s\" ... Result: %s");
@@ -361,7 +361,7 @@ public class CommandLineActionTest {
             "0.00 MB\\nSystem Available Memory     : " +
             "0.00 MB\\nSystem Total CPU            : 0.00 %";
 
-    private String version = "ioFog Agent 3.4.0 \n" +
+    private String version = "ioFog Agent 3.5.0 \n" +
             "Copyright (c) 2023 Datasance Teknoloji A.S. \n" +
             "Eclipse ioFog is provided under the Eclipse Public License 2.0 (EPL-2.0) \n" +
             "https://www.eclipse.org/legal/epl-v20.html";
@@ -451,6 +451,10 @@ public class CommandLineActionTest {
         "                      /#GPS DD.DDD(lat), Use auto to get coordinates by IP,\\n" +
         "                            DD.DDD(lon)  use off to forbid gps,\\n" +
         "                                         use GPS coordinates in DD format to set them manually\\n" +
+        "                 -gpsd <device>          Set the GPS device to use (example: /dev/ttyUSB0)\\n" +
+        "                 -gpsf <#seconds>        Set the GPS scan frequency\\n" +
+        "                 -eg <on/off>            Set the edge guard mode\\n" +
+        "                 -egf <#seconds>         Set the edge guard frequency\\n" +
         "                 -ft <auto               Set fog type.\\n" +
         "                     /intel_amd/arm>     Use auto to detect fog type by system commands,\\n" +
         "                                         use arm or intel_amd to set it manually\\n" +

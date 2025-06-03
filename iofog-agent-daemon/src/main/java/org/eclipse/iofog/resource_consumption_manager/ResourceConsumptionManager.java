@@ -82,7 +82,9 @@ public class ResourceConsumptionManager implements IOFogModule {
 
 				float memoryUsage = getMemoryUsage();
 				float cpuUsage = getCpuUsage();
-				float diskUsage = directorySize(Configuration.getDiskDirectory() + "messages/archive/");
+				float archiveDiskUsage = directorySize(Configuration.getDiskDirectory() + "messages/archive/");
+				float volumesDiskUsage = directorySize(Configuration.getDiskDirectory() + "volumes/");
+				float diskUsage = archiveDiskUsage + volumesDiskUsage;
 
 				long availableMemory = getSystemAvailableMemory();
 				float totalCpu = getTotalCpu();
@@ -100,7 +102,6 @@ public class ResourceConsumptionManager implements IOFogModule {
 						.setAvailableDisk(availableDisk)
 						.setTotalCpu(totalCpu)
 						.setTotalDiskSpace(totalDiskSpace);
-
 
 				if (diskUsage > diskLimit) {
 					float amount = diskUsage - (diskLimit * 0.75f);

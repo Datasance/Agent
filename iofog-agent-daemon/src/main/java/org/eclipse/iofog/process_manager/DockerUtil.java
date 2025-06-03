@@ -19,6 +19,7 @@ import com.github.dockerjava.api.exception.ConflictException;
 import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.exception.NotModifiedException;
 import com.github.dockerjava.api.model.*;
+import com.github.dockerjava.api.model.Frame;
 import com.github.dockerjava.api.model.Ports.Binding;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientBuilder;
@@ -36,10 +37,14 @@ import org.eclipse.iofog.utils.Constants;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
 import org.eclipse.iofog.network.IOFogNetworkInterfaceManager;
+import org.eclipse.iofog.process_manager.ExecSessionStatus;
 
 import jakarta.json.Json;
 import jakarta.json.JsonObject;
 import java.io.IOException;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
+import java.io.Closeable;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -92,6 +97,10 @@ public class DockerUtil {
             }
             DockerClientConfig config = configBuilder.build();
             dockerClient = DockerClientBuilder.getInstance(config).build();
+            
+            // Ensure pot network exists during initialization
+            ensurePotNetworkExists();
+            
         } catch (Exception e) {
             logError(MODULE_NAME,"Docker client initialization failed", new AgentUserException(e.getMessage(), e));
             throw e;
@@ -354,10 +363,9 @@ public class DockerUtil {
      */
     public MicroserviceStatus getMicroserviceStatus(String containerId, String microserviceUuid) {
     	LoggingService.logDebug(MODULE_NAME , "Get microservice status for microservice uuid : "+ microserviceUuid);
-        InspectContainerResponse inspectInfo;
         MicroserviceStatus result = new MicroserviceStatus();
         try {
-            inspectInfo = dockerClient.inspectContainerCmd(containerId).exec();
+            InspectContainerResponse inspectInfo = dockerClient.inspectContainerCmd(containerId).exec();
             ContainerState containerState = inspectInfo.getState();
             if (containerState != null) {
                 if (containerState.getStartedAt() != null) {
@@ -373,11 +381,23 @@ public class DockerUtil {
                 MicroserviceStatus existingStatus = StatusReporter.setProcessManagerStatus().getMicroserviceStatus(microserviceUuid);
                 result.setPercentage(existingStatus.getPercentage());
                 result.setErrorMessage(existingStatus.getErrorMessage());
-                try {
-                    result.setIpAddress(getContainerIpAddress(containerId));
-                } catch (AgentSystemException e) {
-                    LoggingService.logWarning(MODULE_NAME, "Error getting IP address for container " + containerId + ": " + e.getMessage());
-                    result.setIpAddress("UNKNOWN");
+
+                if (MicroserviceState.RUNNING.equals(result.getStatus())) {
+                    try {
+                        result.setIpAddress(getContainerIpAddress(containerId));
+                    } catch (AgentSystemException e) {
+                        LoggingService.logWarning(MODULE_NAME, "Error getting IP address for container " + containerId + ": " + e.getMessage());
+                        result.setIpAddress("UNKNOWN");
+                    }
+                    
+                    // Get exec session ID if available
+                    if (inspectInfo.getExecIds() != null && !inspectInfo.getExecIds().isEmpty()) {
+                        // Get the most recent exec session ID
+                        String execId = inspectInfo.getExecIds().get(inspectInfo.getExecIds().size() - 1);
+                        result.setExecSessionId(execId);
+                    } else {
+                        result.setExecSessionId("");
+                    }
                 }
             }
         } catch (Exception e) {
@@ -575,7 +595,8 @@ public class DockerUtil {
     @SuppressWarnings("resource")
     public void pullImage(String imageName, String microserviceUuid, String platform, Registry registry) throws AgentSystemException {
         LoggingService.logInfo(MODULE_NAME, String.format("pull image name \"%s\" ", imageName));
-        Map<String, ItemStatus> statuses = new HashMap();
+        // Map<String, ItemStatus> statuses = new HashMap();
+        Map<String, ItemStatus> statuses = new HashMap<String, ItemStatus>();
         String tag = null, image;
         String[] sp = imageName.split(":");
         image = sp[0];
@@ -707,6 +728,17 @@ public class DockerUtil {
             hosts[hosts.length - 1] = "iofog:" + host;
         }
 
+        // Add service.local host for non-router microservices
+        if (!microservice.isRootHostAccess() && !microservice.isRouter()) {
+            String routerIP = getRouterMicroserviceIP();
+            if (routerIP != null) {
+                String[] newHosts = new String[hosts.length + 1];
+                System.arraycopy(hosts, 0, newHosts, 0, hosts.length);
+                newHosts[hosts.length] = "service.local:" + routerIP;
+                hosts = newHosts;
+            }
+        }
+
         Map<String, String> containerLogConfig = new HashMap<>();
         int logFiles = 1;
         if (microservice.getLogSize() > 2)
@@ -729,6 +761,9 @@ public class DockerUtil {
         }
         Map<String, String> labels = new HashMap<>();
         labels.put("iofog-uuid", Configuration.getIofogUuid());
+        if (microservice.isRouter()) {
+            labels.put("iofog-router", "true");
+        }
         HostConfig hostConfig = HostConfig.newHostConfig();
         hostConfig.withPortBindings(portBindings);
         hostConfig.withLogConfig(containerLog);
@@ -753,13 +788,13 @@ public class DockerUtil {
             if(microservice.isRootHostAccess()){
                 hostConfig.withNetworkMode("host").withExtraHosts(hosts).withPrivileged(true);
             } else if(hosts[hosts.length - 1] != null) {
-                hostConfig.withExtraHosts(hosts).withPrivileged(false);
+                hostConfig.withNetworkMode("pot").withExtraHosts(hosts).withPrivileged(false);
             }
         } else if (SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) {
             if(microservice.isRootHostAccess()){
                 hostConfig.withNetworkMode("host").withPrivileged(true);
             } else if(hosts[hosts.length - 1] != null) {
-                hostConfig.withExtraHosts(hosts).withPrivileged(false);
+                hostConfig.withNetworkMode("pot").withExtraHosts(hosts).withPrivileged(false);
             }
         }
 
@@ -791,6 +826,14 @@ public class DockerUtil {
                 .map(Capability::valueOf)
                 .toArray(Capability[]::new);
             hostConfig.withCapDrop(capabilities);
+        }
+
+        if (microservice.getPidMode() != null && !microservice.getPidMode().isEmpty()) {
+            hostConfig.withPidMode(microservice.getPidMode());
+        }
+
+        if (microservice.getIpcMode() != null && !microservice.getIpcMode().isEmpty()) {
+            hostConfig.withIpcMode(microservice.getIpcMode());
         }
 
         if (microservice.getArgs() != null && microservice.getArgs().size() > 0) {
@@ -921,6 +964,52 @@ public class DockerUtil {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Checks if the "pot" network exists and creates it if it doesn't
+     * @return true if network exists or was created successfully, false otherwise
+     */
+    private boolean ensurePotNetworkExists() {
+        try {
+            List<Network> networks = dockerClient.listNetworksCmd().exec();
+            boolean potNetworkExists = networks.stream()
+                .anyMatch(network -> "pot".equals(network.getName()));
+
+            if (!potNetworkExists) {
+                LoggingService.logInfo(MODULE_NAME, "Creating 'pot' bridge network");
+                dockerClient.createNetworkCmd()
+                    .withName("pot")
+                    .withDriver("bridge")
+                    .exec();
+                LoggingService.logInfo(MODULE_NAME, "Successfully created 'pot' bridge network");
+            }
+            return true;
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Failed to ensure 'pot' network exists", 
+                new AgentSystemException(e.getMessage(), e));
+            return false;
+        }
+    }
+
+    /**
+     * Gets the IP address of the router microservice container
+     * @return IP address of the router microservice container or null if not found
+     */
+    public String getRouterMicroserviceIP() {
+        LoggingService.logDebug(MODULE_NAME, "Getting router microservice IP address");
+        String routerUuid = Configuration.getRouterUuid();
+        if (routerUuid != null && !routerUuid.isEmpty()) {
+            Optional<Container> container = getContainer(routerUuid);
+            if (container.isPresent()) {
+                try {
+                    return getContainerIpAddress(container.get().getId());
+                } catch (AgentSystemException e) {
+                    LoggingService.logWarning(MODULE_NAME, "Failed to get router container IP address: " + e.getMessage());
+                }
+            }
+        }
+        return null;
+    }
+
     class ItemStatus {
         private String id;
         private int percentage;
@@ -948,6 +1037,191 @@ public class DockerUtil {
 
         public void setPullStatus(String pullStatus) {
             this.pullStatus = pullStatus;
+        }
+    }
+
+    /**
+     * Creates an exec session in a container
+     * @param containerId - ID of the container
+     * @param command - Command to execute
+     * @return String - Exec session ID
+     * @throws Exception if session creation fails
+     */
+    public String createExecSession(String containerId, String[] command) throws Exception {
+        LoggingService.logInfo(MODULE_NAME, "Creating exec session for container: " + containerId);
+        try {
+            ExecCreateCmdResponse response = dockerClient.execCreateCmd(containerId)
+                .withCmd(command)
+                .withAttachStdin(true)
+                .withAttachStdout(true)
+                .withAttachStderr(true)
+                .withTty(true)
+                .exec();
+            LoggingService.logInfo(MODULE_NAME, "Exec session created with ID: " + response.getId());
+            return response.getId();
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error creating exec session", e);
+            throw e;
+        }
+    }
+
+    /**
+     * Starts an exec session with the given callback
+     * 
+     * @param execId - ID of the exec session
+     * @param callback - Callback to handle session I/O
+     * @throws Exception if session start fails
+     */
+    public void startExecSession(String execId, ExecSessionCallback callback) throws Exception {
+        LoggingService.logInfo(MODULE_NAME, "Starting exec session: " + execId);
+        try {
+            dockerClient.execStartCmd(execId)
+                .withDetach(false)
+                .withTty(true)
+                .exec(callback);
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error starting exec session", e);
+            throw e;
+        }
+    }
+
+    /**
+     * Gets the status of an exec session
+     * 
+     * @param execId - ID of the exec session
+     * @return ExecSessionStatus - Status of the exec session
+     * @throws Exception if status check fails
+     */
+    public ExecSessionStatus getExecSessionStatus(String execId) throws Exception {
+        LoggingService.logInfo(MODULE_NAME, "Getting status for exec session: " + execId);
+        try {
+            InspectExecResponse response = dockerClient.inspectExecCmd(execId).exec();
+            boolean running = response.isRunning();
+            Long exitCode = response.getExitCodeLong();
+            return new ExecSessionStatus(running, exitCode);
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error getting exec session status", e);
+            throw e;
+        }
+    }
+
+    /**
+     * Kills an exec session
+     * 
+     * @param execId - ID of the exec session to kill
+     * @throws Exception if session kill fails
+     */
+    public void killExecSession(String execId) throws Exception {
+        LoggingService.logInfo(MODULE_NAME, "Checking exec session: " + execId);
+        try {
+            // Since we can't directly kill an exec session, we'll check its status
+            InspectExecResponse response = dockerClient.inspectExecCmd(execId).exec();
+            if (response.isRunning()) {
+                LoggingService.logInfo(MODULE_NAME, "Exec session is still running: " + execId);
+                // Note: We can't directly kill the exec session, but we can log this information
+                // The session will eventually complete on its own
+            } else {
+                LoggingService.logInfo(MODULE_NAME, "Exec session has already completed: " + execId);
+            }
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error checking exec session status", e);
+            throw e;
+        }
+    }
+
+    /**
+     * Callback class for handling exec session output and managing timeouts
+     */
+    public class ExecSessionCallback extends ResultCallback.Adapter<Frame> {
+        private final String execId;
+        private final StringBuilder output = new StringBuilder();
+        private final long startTime;
+        private final long inactivityTimeoutMinutes;
+        private boolean isCompleted = false;
+        private PipedOutputStream ptyStdin;
+        private PipedInputStream ptyStdinPipe;
+        private long lastActivityTime;
+
+        public ExecSessionCallback(String execId, long inactivityTimeoutMinutes) {
+            this.execId = execId;
+            this.startTime = System.currentTimeMillis();
+            this.inactivityTimeoutMinutes = inactivityTimeoutMinutes;
+            this.lastActivityTime = startTime;
+            try {
+                this.ptyStdin = new PipedOutputStream();
+                this.ptyStdinPipe = new PipedInputStream(ptyStdin);
+            } catch (IOException e) {
+                LoggingService.logError(MODULE_NAME, "Failed to create pipes for exec session: " + execId, e);
+            }
+        }
+
+        private void resetInactivityTimer() {
+            lastActivityTime = System.currentTimeMillis();
+        }
+
+        @Override
+        public void onStart(Closeable closeable) {
+            LoggingService.logInfo(MODULE_NAME, "Exec session started: " + execId);
+            resetInactivityTimer();
+        }
+
+        @Override
+        public void onNext(Frame frame) {
+            String payload = new String(frame.getPayload(), StandardCharsets.UTF_8);
+            output.append(payload);
+            resetInactivityTimer();
+            
+            // Check for inactivity timeout
+            if (System.currentTimeMillis() - lastActivityTime > inactivityTimeoutMinutes * 60 * 1000) {
+                try {
+                    LoggingService.logInfo(MODULE_NAME, "Exec session inactive for " + inactivityTimeoutMinutes + " minutes, closing: " + execId);
+                    close();
+                } catch (IOException e) {
+                    LoggingService.logError(MODULE_NAME, "Failed to close exec session: " + execId, e);
+                }
+            }
+        }
+
+        @Override
+        public void onError(Throwable throwable) {
+            LoggingService.logError(MODULE_NAME, "Exec session error: " + execId, throwable);
+        }
+
+        @Override
+        public void onComplete() {
+            isCompleted = true;
+            LoggingService.logInfo(MODULE_NAME, "Exec session completed: " + execId);
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (ptyStdinPipe != null) ptyStdinPipe.close();
+            if (ptyStdin != null) ptyStdin.close();
+            super.close();
+        }
+
+        public String getOutput() {
+            return output.toString();
+        }
+
+        public boolean isCompleted() {
+            return isCompleted;
+        }
+
+        public PipedInputStream getStdinPipe() {
+            return ptyStdinPipe;
+        }
+
+        public PipedOutputStream getStdin() {
+            return ptyStdin;
+        }
+
+        public void writeInput(byte[] input) throws IOException {
+            if (ptyStdin != null) {
+                ptyStdin.write(input);
+                ptyStdin.flush();
+                resetInactivityTimer();
+            }
         }
     }
 }

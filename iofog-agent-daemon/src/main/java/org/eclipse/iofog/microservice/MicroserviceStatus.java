@@ -38,6 +38,7 @@ public class MicroserviceStatus {
 	private float percentage;
 	private String errorMessage;
 	private String ipAddress;
+	private String execSessionId;
 
 	public String getErrorMessage() {
 		return errorMessage;
@@ -120,6 +121,14 @@ public class MicroserviceStatus {
 
 	public void setIpAddress(String ipAddress) {
 		this.ipAddress = ipAddress;
+	}
+
+	public String getExecSessionId() {
+		return execSessionId;
+	}
+
+	public void setExecSessionId(String execSessionId) {
+		this.execSessionId = execSessionId;
 	}
 
 	/**

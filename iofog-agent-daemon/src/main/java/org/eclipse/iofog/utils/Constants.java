@@ -24,7 +24,7 @@ import java.io.PrintStream;
 public class Constants {
 
     public enum ModulesStatus {
-        STARTING, RUNNING, STOPPED
+        STARTING, RUNNING, STOPPED, WARNING
     }
 
     public enum DockerStatus {

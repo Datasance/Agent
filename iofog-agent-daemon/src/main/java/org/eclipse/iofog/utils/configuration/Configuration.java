@@ -63,6 +63,8 @@ import static org.eclipse.iofog.command_line.CommandLineConfigParam.*;
 import static org.eclipse.iofog.utils.CmdProperties.*;
 import static org.eclipse.iofog.utils.Constants.*;
 import static org.eclipse.iofog.utils.logging.LoggingService.logError;
+import org.eclipse.iofog.gps.GpsDeviceHandler;
+import org.eclipse.iofog.edge_guard.EdgeGuardManager;
 
 /**
  * holds IOFog instance configuration
@@ -99,6 +101,10 @@ public final class Configuration {
     private static int deviceScanFrequency;
     private static int postDiagnosticsFreq;
     private static boolean watchdogEnabled;
+    private static long edgeGuardFrequency;
+    private static String hwSignature;
+    private static String gpsDevice;
+    private static long gpsScanFrequency;
     private static String gpsCoordinates;
     private static GpsMode gpsMode;
     private static ArchitectureType fogType;
@@ -128,6 +134,7 @@ public final class Configuration {
     private static String caCert;
     private static String tlsCert;
     private static String tlsKey;
+    private static String routerUuid;
     private static boolean devMode;
 
     public static boolean isDevMode() {
@@ -136,6 +143,14 @@ public final class Configuration {
 
     public static void setDevMode(boolean devMode) {
         Configuration.devMode = devMode;
+    }
+
+    public static String getRouterUuid() {
+        return routerUuid;
+    }
+
+    public static void setRouterUuid(String routerUuid) {
+        Configuration.routerUuid = routerUuid;
     }
 
     public static String getRouterHost() {
@@ -232,6 +247,41 @@ public final class Configuration {
         Configuration.watchdogEnabled = watchdogEnabled;
     }
 
+
+    public static long getEdgeGuardFrequency() {
+        return edgeGuardFrequency;
+
+    }
+
+    public static void setEdgeGuardFrequency(long edgeGuardFrequency) {
+        Configuration.edgeGuardFrequency = edgeGuardFrequency;
+        if (edgeGuardFrequency == 0) {
+            clearHwSignature();
+         }
+    }
+
+    public static String getHwSignature() {
+        return hwSignature;
+    }
+
+    public static void setHwSignature(String hwSignature) {
+        Configuration.hwSignature = hwSignature;
+        try {
+            setNode(HW_SIGNATURE, hwSignature, configFile, configElement);
+        } catch (ConfigurationItemException e) {
+            LoggingService.logError(MODULE_NAME, "Failed to set hardware signature in config", e);
+        }
+    }
+
+    public static void clearHwSignature() {
+        Configuration.hwSignature = null;
+        try {
+            setNode(HW_SIGNATURE, null, configFile, configElement);
+        } catch (ConfigurationItemException e) {
+            LoggingService.logError(MODULE_NAME, "Failed to clear hardware signature in config", e);
+        }
+    }
+
     public static int getStatusFrequency() {
         return statusFrequency;
     }
@@ -275,6 +325,22 @@ public final class Configuration {
 
     public static void setGpsMode(GpsMode gpsMode) {
         Configuration.gpsMode = gpsMode;
+    }
+
+    public static String getGpsDevice() {
+        return gpsDevice;
+    }
+
+    public static void setGpsDevice(String gpsDevice) {
+        Configuration.gpsDevice = gpsDevice;
+    }
+
+    public static long getGpsScanFrequency() {
+        return gpsScanFrequency;
+    }
+
+    public static void setGpsScanFrequency(long gpsScanFrequency) {
+        Configuration.gpsScanFrequency = gpsScanFrequency;
     }
 
     public static void resetToDefault() throws Exception {
@@ -406,6 +472,7 @@ public final class Configuration {
         ResourceConsumptionManager.getInstance().instanceConfigUpdated();
         DockerPruningManager.getInstance().changePruningFreqInterval();
         MessageBus.getInstance().instanceConfigUpdated();
+        EdgeGuardManager.getInstance().changeEdgeGuardFreqInterval();
 //        LoggingService.instanceConfigUpdated();
 
         updateConfigFile(getCurrentConfigPath(), configFile);
@@ -673,10 +740,49 @@ public final class Configuration {
                         setNode(WATCHDOG_ENABLED, value, configFile, configElement);
                         setWatchdogEnabled(!value.equals("off"));
                         break;
+                    case EDGE_GUARD_FREQUENCY:
+                        LoggingService.logInfo(MODULE_NAME, "Setting edge guard frequency");
+                        try {
+                            longValue = Long.parseLong(value);
+                        } catch (NumberFormatException e) {
+                            messageMap.put(option, "Option -" + option + " has invalid value: " + value);
+                            break;
+                        }
+                        if (longValue < 0) {
+                            messageMap.put(option, "Edge guard frequency must be positive value");
+                            break;
+                        }
+                        setNode(EDGE_GUARD_FREQUENCY, value, configFile, configElement);
+                        setEdgeGuardFrequency(longValue);
+                        break;
+                    case GPS_DEVICE:
+                        LoggingService.logInfo(MODULE_NAME, "Setting gps device");
+                        setNode(GPS_DEVICE, value, configFile, configElement);
+                        setGpsDevice(value);
+                        break;
+                    case GPS_SCAN_FREQUENCY:
+                        LoggingService.logInfo(MODULE_NAME, "Setting gps scan frequency");
+                        try {
+                            longValue = Long.parseLong(value);
+                        } catch (NumberFormatException e) {
+                            messageMap.put(option, "Option -" + option + " has invalid value: " + value);
+                            break;
+                        }
+                        if (longValue < 0) {
+                            messageMap.put(option, "Gps scan frequency must be positive value");
+                            break;
+                        }
+                        setNode(GPS_SCAN_FREQUENCY, value, configFile, configElement);
+                        setGpsScanFrequency(longValue);
+                        break;
                     case GPS_MODE:
                         LoggingService.logInfo(MODULE_NAME, "Setting gps mode");
                         try {
-                            configureGps(value, gpsCoordinates);
+                            if (value.toLowerCase().equals("dynamic")) {
+                                startGpsDeviceHandler();
+                            } else {
+                                configureGps(value, gpsCoordinates);
+                            }
                             writeGpsToConfigFile();
                         } catch (ConfigurationItemException e){
                             messageMap.put(option, "Option -" + option + " has invalid value: " + value);
@@ -714,8 +820,8 @@ public final class Configuration {
                             messageMap.put(option, "Option -" + option + " has invalid value: " + value);
                             break;
                         }
-                        if (longValue < 1) {
-                            messageMap.put(option, "Docker pruning frequency must be greater than 1");
+                        if (longValue < 0) {
+                            messageMap.put(option, "Docker pruning frequency must be positive value");
                             break;
                         }
                         setNode(DOCKER_PRUNING_FREQUENCY, value, configFile, configElement);
@@ -849,8 +955,8 @@ public final class Configuration {
      * @throws ConfigurationItemException
      */
     private static void configureGps(String gpsModeCommand, String gpsCoordinatesCommand) throws ConfigurationItemException {
-    	LoggingService.logDebug(MODULE_NAME, "Start configures GPS coordinates and mode in config file ");
-    	String gpsCoordinates;
+        LoggingService.logDebug(MODULE_NAME, "Start configures GPS coordinates and mode in config file ");
+        String gpsCoordinates;
         GpsMode currentMode;
 
         if (GpsMode.AUTO.name().toLowerCase().equals(gpsModeCommand)) {
@@ -862,6 +968,10 @@ public final class Configuration {
         } else if (GpsMode.OFF.name().toLowerCase().equals(gpsModeCommand)) {
             gpsCoordinates = "";
             currentMode = GpsMode.OFF;
+        } else if (GpsMode.DYNAMIC.name().toLowerCase().equals(gpsModeCommand)) {
+            gpsCoordinates = "";
+            currentMode = GpsMode.DYNAMIC;
+            LoggingService.logDebug(MODULE_NAME, "GPS device handler will be started after system initialization");
         } else {
             if (GpsMode.MANUAL.name().toLowerCase().equals(gpsModeCommand)) {
                 gpsCoordinates = gpsCoordinatesCommand;
@@ -873,6 +983,17 @@ public final class Configuration {
 
         setGpsDataIfValid(currentMode, gpsCoordinates);
         LoggingService.logDebug(MODULE_NAME, "Finished configures GPS coordinates and mode in config file ");
+    }
+
+    /**
+     * Starts the GPS device handler if in DYNAMIC mode and device is configured
+     * This should be called after system initialization is complete
+     */
+    public static void startGpsDeviceHandler() {
+        if (gpsMode == GpsMode.DYNAMIC && gpsDevice != null && !gpsDevice.isEmpty()) {
+            LoggingService.logInfo(MODULE_NAME, "Starting GPS device handler for DYNAMIC mode");
+            GpsDeviceHandler.getInstance().start();
+        }
     }
 
     public static void setGpsDataIfValid(GpsMode mode, String gpsCoordinates) throws ConfigurationItemException {
@@ -1031,13 +1152,16 @@ public final class Configuration {
         setLogDiskDirectory(getNode(LOG_DISK_DIRECTORY, configFile));
         setLogDiskLimit(Float.parseFloat(getNode(LOG_DISK_CONSUMPTION_LIMIT, configFile)));
         setLogFileCount(Integer.parseInt(getNode(LOG_FILE_COUNT, configFile)));
-        setLogLevel(getNode(LOG_LEVEL, configFile));       
+        setLogLevel(getNode(LOG_LEVEL, configFile));
+        setGpsDevice(getNode(GPS_DEVICE, configFile));
+        setGpsScanFrequency(Long.parseLong(getNode(GPS_SCAN_FREQUENCY, configFile)));     
         configureGps(getNode(GPS_MODE, configFile), getNode(GPS_COORDINATES, configFile));
         setChangeFrequency(Integer.parseInt(getNode(CHANGE_FREQUENCY, configFile)));
         setDeviceScanFrequency(Integer.parseInt(getNode(DEVICE_SCAN_FREQUENCY, configFile)));
         setStatusFrequency(Integer.parseInt(getNode(STATUS_FREQUENCY, configFile)));
         setPostDiagnosticsFreq(Integer.parseInt(getNode(POST_DIAGNOSTICS_FREQ, configFile)));
         setWatchdogEnabled(!getNode(WATCHDOG_ENABLED, configFile).equals("off"));
+        setEdgeGuardFrequency(Long.parseLong(getNode(EDGE_GUARD_FREQUENCY, configFile)));
         configureFogType(getNode(FOG_TYPE, configFile));
         setSecureMode(!getNode(SECURE_MODE, configFile).equals("off"));
         setIpAddressExternal(GpsWebHandler.getExternalIp());
@@ -1321,6 +1445,12 @@ public final class Configuration {
         result.append(buildReportLine(getConfigParamMessage(POST_DIAGNOSTICS_FREQ), format("%d", postDiagnosticsFreq)));
         // log file directory
         result.append(buildReportLine(getConfigParamMessage(WATCHDOG_ENABLED), (watchdogEnabled ? "on" : "off")));
+        // edge guard frequency
+        result.append(buildReportLine(getConfigParamMessage(EDGE_GUARD_FREQUENCY), format("%d", edgeGuardFrequency)));
+        // gps device
+        result.append(buildReportLine(getConfigParamMessage(GPS_DEVICE), gpsDevice));
+        // gps scan frequency
+        result.append(buildReportLine(getConfigParamMessage(GPS_SCAN_FREQUENCY), format("%d", gpsScanFrequency)));
         // gps mode
         result.append(buildReportLine(getConfigParamMessage(GPS_MODE), gpsMode.name().toLowerCase()));
         // gps coordinates
