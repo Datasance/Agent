@@ -24,6 +24,7 @@ dependencies {
     //testCompile 'org.powermock:powermock-api-mockito2:2.0.2'
     //testCompile 'org.powermock:powermock-core:2.0.2'
     implementation 'com.github.docker-java:docker-java:3.5.0'
+    implementation 'com.github.docker-java:docker-java-transport-httpclient5:3.5.0'
     implementation 'io.netty:netty-all:4.1.113.Final'
     implementation 'org.jboss.logmanager:jboss-logmanager:3.0.6.Final'
     implementation 'com.github.mwiede:jsch:0.2.20'
@@ -39,9 +40,9 @@ dependencies {
     implementation 'com.nimbusds:nimbus-jose-jwt:9.37.3'
     implementation 'com.google.crypto.tink:tink:1.9.0'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.80'
+    implementation 'org.msgpack:msgpack-core:0.9.8'
     testImplementation 'org.mockito:mockito-core:5.4.0'
     testImplementation 'org.mockito:mockito-junit-jupiter:5.4.0'
-    testImplementation 'org.mockito:mockito-inline:5.4.0'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.0'
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.0'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
@@ -67,6 +68,7 @@ test {
             '--add-opens=java.base/java.lang=ALL-UNNAMED',
             '--add-opens=java.base/java.io=ALL-UNNAMED',
             '--add-opens=java.base/java.nio=ALL-UNNAMED',
+            // '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED',
             '--add-opens=java.base/java.lang.reflect=ALL-UNNAMED',
             '--add-opens=java.base/java.util.concurrent=ALL-UNNAMED',
             '--add-opens=java.base/java.net=ALL-UNNAMED',

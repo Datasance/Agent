@@ -14,6 +14,7 @@ package org.eclipse.iofog.process_manager;
 
 import com.github.dockerjava.api.model.Container;
 import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
 
 import static org.apache.commons.lang3.StringUtils.EMPTY;
 
@@ -41,6 +42,7 @@ public class ContainerTask {
     private String[] command;
     private ExecSessionCallback callback;
     private String execId;
+    private CompletableFuture<String> future;
 
     public ContainerTask(Tasks action, String microserviceUuid) {
         this.action = action;
@@ -88,8 +90,20 @@ public class ContainerTask {
         return execId;
     }
 
+    public void setExecId(String execId) {
+        this.execId = execId;
+    }
+
     public void incrementRetries() {
         this.retries++;
+    }
+
+    public void setFuture(CompletableFuture<String> future) {
+        this.future = future;
+    }
+
+    public CompletableFuture<String> getFuture() {
+        return future;
     }
 
     @Override

@@ -20,6 +20,8 @@ import com.github.dockerjava.api.model.Statistics;
 import org.eclipse.iofog.process_manager.DockerUtil;
 import org.eclipse.iofog.utils.logging.LoggingService;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -38,7 +40,7 @@ public class MicroserviceStatus {
 	private float percentage;
 	private String errorMessage;
 	private String ipAddress;
-	private String execSessionId;
+	private List<String> execSessionIds;
 
 	public String getErrorMessage() {
 		return errorMessage;
@@ -123,12 +125,25 @@ public class MicroserviceStatus {
 		this.ipAddress = ipAddress;
 	}
 
-	public String getExecSessionId() {
-		return execSessionId;
+	public List<String> getExecSessionIds() {
+		return execSessionIds != null ? execSessionIds : new ArrayList<>();
 	}
 
-	public void setExecSessionId(String execSessionId) {
-		this.execSessionId = execSessionId;
+	public void setExecSessionIds(List<String> execSessionIds) {
+		this.execSessionIds = execSessionIds;
+	}
+
+	public void addExecSessionId(String execSessionId) {
+		if (this.execSessionIds == null) {
+			this.execSessionIds = new ArrayList<>();
+		}
+		this.execSessionIds.add(execSessionId);
+	}
+
+	public void removeExecSessionId(String execSessionId) {
+		if (this.execSessionIds != null) {
+			this.execSessionIds.remove(execSessionId);
+		}
 	}
 
 	/**

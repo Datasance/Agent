@@ -66,8 +66,14 @@ public class ProcessManagerStatus {
                         .add("operatingDuration", status.getOperatingDuration())
                         .add("cpuUsage", nf.format(status.getCpuUsage()))
                         .add("memoryUsage", String.format("%d", status.getMemoryUsage()))
-                        .add("ipAddress", status.getIpAddress() != null ? status.getIpAddress() : "UNKNOWN")
-                        .add("execSessionId", status.getExecSessionId() != null ? status.getExecSessionId() : "");
+                        .add("ipAddress", status.getIpAddress() != null ? status.getIpAddress() : "UNKNOWN");
+
+                // Add exec session IDs as a JSON array
+                JsonArrayBuilder execIdsBuilder = Json.createArrayBuilder();
+                if (status.getExecSessionIds() != null) {
+                    status.getExecSessionIds().forEach(execIdsBuilder::add);
+                }
+                objectBuilder.add("execSessionIds", execIdsBuilder);
             }
             if (status != null && status.getErrorMessage() != null) {
                 objectBuilder.add("errorMessage", status.getErrorMessage());

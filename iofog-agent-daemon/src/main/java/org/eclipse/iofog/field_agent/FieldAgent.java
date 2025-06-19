@@ -44,6 +44,7 @@ import org.eclipse.iofog.utils.logging.LoggingService;
 import org.eclipse.iofog.volume_mount.VolumeMountManager;
 import org.eclipse.iofog.process_manager.ExecSessionCallback;
 import org.eclipse.iofog.process_manager.ExecSessionStatus;
+import org.eclipse.iofog.utils.ExecSessionWebSocketHandler;
 
 import jakarta.json.*;
 import javax.net.ssl.SSLHandshakeException;
@@ -85,6 +86,7 @@ public class FieldAgent implements IOFogModule {
     private final String filesPath = SystemUtils.IS_OS_WINDOWS ? SNAP_COMMON + "./etc/iofog-agent/" : SNAP_COMMON + "/etc/iofog-agent/";
 
     private Orchestrator orchestrator;
+    private ExecSessionWebSocketHandler execSessionWebSocketHandler;
     private SshProxyManager sshProxyManager;
     private long lastGetChangesList;
     private MicroserviceManager microserviceManager;
@@ -99,6 +101,8 @@ public class FieldAgent implements IOFogModule {
 
     private final Map<String, String> activeExecSessions = new ConcurrentHashMap<>();
     private final Map<String, ExecSessionCallback> execCallbacks = new ConcurrentHashMap<>();
+    private final Map<String, ExecSessionWebSocketHandler> activeWebSockets = new ConcurrentHashMap<>();
+    private final Map<String, ExecSessionCallback> activeExecCallbacks = new ConcurrentHashMap<>();
 
     private FieldAgent() {
         lastGetChangesList = 0;
@@ -1008,6 +1012,7 @@ public class FieldAgent implements IOFogModule {
             microservice.setRebuild(jsonObj.getBoolean("rebuild"));
             microservice.setRootHostAccess(jsonObj.getBoolean("rootHostAccess"));
             microservice.setRegistryId(jsonObj.getInt("registryId"));
+            microservice.setSchedule(jsonObj.getInt("schedule"));
             microservice.setLogSize(jsonObj.getJsonNumber("logSize").longValue());
             microservice.setDelete(jsonObj.getBoolean("delete"));
             microservice.setDeleteWithCleanup(jsonObj.getBoolean("deleteWithCleanup"));
@@ -1987,66 +1992,321 @@ public class FieldAgent implements IOFogModule {
     }
 
     private void handleExecSessions(List<Microservice> microservices) {
+        LoggingService.logDebug(MODULE_NAME, "Starting handleExecSessions for " + microservices.size() + " microservices");
         logDebug("Start handling exec sessions");
-        
-        for (Microservice microservice : microservices) {
-            if (!microservice.isExecEnabled()) {
-                // If exec was disabled, kill any existing session
-                String existingExecId = getCurrentExecSessionId(microservice.getMicroserviceUuid());
-                if (existingExecId != null) {
-                    try {
-                        ProcessManager.getInstance().killExecSession(existingExecId);
-                        activeExecSessions.remove(microservice.getMicroserviceUuid());
-                        execCallbacks.remove(microservice.getMicroserviceUuid());
-                    } catch (Exception e) {
-                        logError("Failed to kill exec session for microservice: " + microservice.getMicroserviceUuid(), e);
-                    }
-                }
-                continue;
-            }
 
-            try {
-                // Get current exec session status if any exists
-                String execId = getCurrentExecSessionId(microservice.getMicroserviceUuid());
-                
-                if (execId != null) {
-                    // Check if existing session is still valid
-                    ExecSessionStatus status = ProcessManager.getInstance().getExecSessionStatus(execId);
-                    if (status == null || !status.isRunning()) {
-                        // Only create new session if current one is not running
-                        activeExecSessions.remove(microservice.getMicroserviceUuid());
-                        execCallbacks.remove(microservice.getMicroserviceUuid());
+        CompletableFuture<?>[] futures = microservices.stream()
+            .map(microservice -> CompletableFuture.runAsync(() -> {
+                LoggingService.logDebug(MODULE_NAME, "Processing exec session for microservice: " + microservice.getMicroserviceUuid() + ", exec enabled: " + microservice.isExecEnabled());
+                if (!microservice.isExecEnabled()) {
+                    LoggingService.logDebug(MODULE_NAME, "Exec is disabled for microservice: " + microservice.getMicroserviceUuid());
+                    // Handle disabled exec sessions
+                    String existingExecId = getCurrentExecSessionId(microservice.getMicroserviceUuid());
+                    if (existingExecId != null) {
+                        LoggingService.logDebug(MODULE_NAME, "Found existing exec session to cleanup: " + existingExecId);
+                        try {
+                            // Kill exec session asynchronously
+                            CompletableFuture.runAsync(() -> {
+                                try {
+                                    LoggingService.logDebug(MODULE_NAME, "Killing exec session: " + existingExecId);
+                                    ProcessManager.getInstance().killExecSession(existingExecId);
+                                    LoggingService.logDebug(MODULE_NAME, "Successfully killed exec session: " + existingExecId);
+                                } catch (Exception e) {
+                                    logError("Failed to kill exec session for microservice: " + microservice.getMicroserviceUuid(), e);
+                                }
+                            });
+
+                            // Handle WebSocket cleanup asynchronously
+                            CompletableFuture.runAsync(() -> {
+                                LoggingService.logDebug(MODULE_NAME, "Cleaning up WebSocket for microservice: " + microservice.getMicroserviceUuid());
+                                ExecSessionWebSocketHandler wsHandler = activeWebSockets.remove(microservice.getMicroserviceUuid());
+                                if (wsHandler != null) {
+                                    LoggingService.logDebug(MODULE_NAME, "Found active WebSocket handler, disconnecting");
+                                    wsHandler.disconnect();
+                                    LoggingService.logDebug(MODULE_NAME, "Successfully disconnected WebSocket handler");
+                                } else {
+                                    LoggingService.logDebug(MODULE_NAME, "No active WebSocket handler found to disconnect");
+                                }
+                                activeExecSessions.remove(microservice.getMicroserviceUuid());
+                                execCallbacks.remove(microservice.getMicroserviceUuid());
+                                LoggingService.logDebug(MODULE_NAME, "Cleaned up exec session and callback maps");
+                            });
+                        } catch (Exception e) {
+                            logError("Failed to handle exec session cleanup for microservice: " + microservice.getMicroserviceUuid(), e);
+                        }
                     } else {
-                        // Session is running, keep it
-                        continue;
+                        LoggingService.logDebug(MODULE_NAME, "No existing exec session found to cleanup for microservice: " + microservice.getMicroserviceUuid());
+                    }
+                } else {
+                    LoggingService.logDebug(MODULE_NAME, "Exec is enabled for microservice: " + microservice.getMicroserviceUuid());
+                    // Handle enabled exec sessions
+                    try {
+                        String execId = getCurrentExecSessionId(microservice.getMicroserviceUuid());
+                        
+                        if (execId != null) {
+                            LoggingService.logDebug(MODULE_NAME, "Found existing exec session: " + execId);
+                            // Check if existing session is still valid
+                            ExecSessionStatus status = ProcessManager.getInstance().getExecSessionStatus(execId);
+                            LoggingService.logDebug(MODULE_NAME, "Exec session status: " + (status != null ? "running=" + status.isRunning() : "null"));
+                            if (status == null || !status.isRunning()) {
+                                LoggingService.logDebug(MODULE_NAME, "Existing exec session is not running, creating new session");
+                                // Only create new session if current one is not running
+                                CompletableFuture.runAsync(() -> {
+                                    try {
+                                        // Create new exec session with fallback shell command
+                                        String[] command = {"sh", "-c", "clear; (bash || ash || sh)"};
+                                        LoggingService.logDebug(MODULE_NAME, "Creating new exec session with command: " + String.join(" ", command));
+                                        ExecSessionCallback callback = new ExecSessionCallback(
+                                            microservice.getMicroserviceUuid(),
+                                            execId
+                                        );
+                                        ProcessManager.getInstance().createExecSession(
+                                            microservice.getMicroserviceUuid(), command, callback)
+                                        .thenAccept(newExecId -> {
+                                            LoggingService.logDebug(MODULE_NAME, "Created new exec session: " + newExecId);
+                                            // Store the new session info
+                                            activeExecSessions.put(microservice.getMicroserviceUuid(), newExecId);
+                                            execCallbacks.put(microservice.getMicroserviceUuid(), callback);
+                                            LoggingService.logDebug(MODULE_NAME, "Stored new session info in maps");
+
+                                            // Set up callback handlers
+                                            handleExecSessionCallback(microservice.getMicroserviceUuid(), callback);
+
+                                            // Create and connect WebSocket handler
+                                            LoggingService.logDebug(MODULE_NAME, "Creating and connecting WebSocket handler");
+                                            ExecSessionWebSocketHandler wsHandler = ExecSessionWebSocketHandler.getInstance(microservice.getMicroserviceUuid());
+                                            LoggingService.logDebug(MODULE_NAME, "Got WebSocket handler instance, checking if already exists in activeWebSockets");
+                                            if (activeWebSockets.containsKey(microservice.getMicroserviceUuid())) {
+                                                LoggingService.logDebug(MODULE_NAME, "Found existing WebSocket handler, cleaning up before creating new one");
+                                                ExecSessionWebSocketHandler existingHandler = activeWebSockets.get(microservice.getMicroserviceUuid());
+                                                existingHandler.disconnect();
+                                                activeWebSockets.remove(microservice.getMicroserviceUuid());
+                                            }
+                                            LoggingService.logDebug(MODULE_NAME, "Connecting new WebSocket handler");
+                                            wsHandler.connect();
+                                            activeWebSockets.put(microservice.getMicroserviceUuid(), wsHandler);
+                                            LoggingService.logDebug(MODULE_NAME, "Successfully created and connected WebSocket handler");
+                                        })
+                                        .exceptionally(e -> {
+                                            logError("Failed to create new exec session for microservice: " + microservice.getMicroserviceUuid(), new AgentSystemException(e.getMessage(), e));
+                                            return null;
+                                        });
+                                    } catch (Exception e) {
+                                        logError("Failed to create new exec session for microservice: " + microservice.getMicroserviceUuid(), e);
+                                    }
+                                });
+                            } else {
+                                LoggingService.logDebug(MODULE_NAME, "Existing exec session is still running: " + execId);
+                            }
+                        } else {
+                            LoggingService.logDebug(MODULE_NAME, "No existing exec session found, creating new one");
+                            // No existing session, create new one
+                            CompletableFuture.runAsync(() -> {
+                                try {
+                                    // Create new exec session with fallback shell command
+                                    String[] command = {"sh", "-c", "clear; (bash || ash || sh)"};
+                                    LoggingService.logDebug(MODULE_NAME, "Creating new exec session with command: " + String.join(" ", command));
+                                    ExecSessionCallback callback = new ExecSessionCallback(
+                                        microservice.getMicroserviceUuid(),
+                                        execId
+                                    );
+                                    ProcessManager.getInstance().createExecSession(
+                                        microservice.getMicroserviceUuid(), command, callback)
+                                    .thenAccept(newExecId -> {
+                                        LoggingService.logDebug(MODULE_NAME, "Created new exec session: " + newExecId);
+                                        // Store the new session info
+                                        activeExecSessions.put(microservice.getMicroserviceUuid(), newExecId);
+                                        execCallbacks.put(microservice.getMicroserviceUuid(), callback);
+                                        LoggingService.logDebug(MODULE_NAME, "Stored new session info in maps");
+
+                                        // Set up callback handlers
+                                        handleExecSessionCallback(microservice.getMicroserviceUuid(), callback);
+
+                                        // Create and connect WebSocket handler
+                                        LoggingService.logDebug(MODULE_NAME, "Creating and connecting WebSocket handler");
+                                        ExecSessionWebSocketHandler wsHandler = ExecSessionWebSocketHandler.getInstance(microservice.getMicroserviceUuid());
+                                        LoggingService.logDebug(MODULE_NAME, "Got WebSocket handler instance, checking if already exists in activeWebSockets");
+                                        if (activeWebSockets.containsKey(microservice.getMicroserviceUuid())) {
+                                            LoggingService.logDebug(MODULE_NAME, "Found existing WebSocket handler, cleaning up before creating new one");
+                                            ExecSessionWebSocketHandler existingHandler = activeWebSockets.get(microservice.getMicroserviceUuid());
+                                            existingHandler.disconnect();
+                                            activeWebSockets.remove(microservice.getMicroserviceUuid());
+                                        }
+                                        LoggingService.logDebug(MODULE_NAME, "Connecting new WebSocket handler");
+                                        wsHandler.connect();
+                                        activeWebSockets.put(microservice.getMicroserviceUuid(), wsHandler);
+                                        LoggingService.logDebug(MODULE_NAME, "Successfully created and connected WebSocket handler");
+                                    })
+                                    .exceptionally(e -> {
+                                        logError("Failed to create new exec session for microservice: " + microservice.getMicroserviceUuid(), new AgentSystemException(e.getMessage(), e));
+                                        return null;
+                                    });
+                                } catch (Exception e) {
+                                    logError("Failed to create new exec session for microservice: " + microservice.getMicroserviceUuid(), e);
+                                }
+                            });
+                        }
+                    } catch (Exception e) {
+                        logError("Failed to handle exec session for microservice: " + microservice.getMicroserviceUuid(), e);
                     }
                 }
+            }))
+            .toArray(CompletableFuture[]::new);
 
-                // Create new exec session with fallback shell command
-                String[] command = {"sh", "-c", "clear; (bash || ash || sh)"};
-                ExecSessionCallback callback = new ExecSessionCallback(
-                    new ByteArrayOutputStream(), // stdin
-                    new ByteArrayOutputStream(), // stdout
-                    new ByteArrayOutputStream()  // stderr
-                );
-                String newExecId = ProcessManager.getInstance().createExecSession(microservice.getMicroserviceUuid(), command, callback);
-                
-                // Store the new session info
-                activeExecSessions.put(microservice.getMicroserviceUuid(), newExecId);
-                execCallbacks.put(microservice.getMicroserviceUuid(), callback);
-                
-            } catch (Exception e) {
-                logError("Failed to handle exec session for microservice: " + microservice.getMicroserviceUuid(), e);
-            }
+        // Wait for all async operations to complete
+        CompletableFuture.allOf(futures)
+            .exceptionally(throwable -> {
+                logError("Error during async exec session handling", new AgentSystemException(throwable.getMessage(), throwable));
+                return null;
+            });
+        LoggingService.logDebug(MODULE_NAME, "Completed handleExecSessions processing");
+    }
+
+    private void handleExecSessionCallback(String microserviceUuid, ExecSessionCallback callback) {
+        LoggingService.logDebug(MODULE_NAME, "Setting up exec session callback for microservice: " + microserviceUuid);
+        try {
+            // Add callback to active callbacks map
+            activeExecCallbacks.put(microserviceUuid, callback);
+            LoggingService.logDebug(MODULE_NAME, "Added callback to activeExecCallbacks map");
+
+            // Set up input handler
+            callback.setOnInputHandler(data -> {
+                LoggingService.logDebug(MODULE_NAME, "Input handler called with data length: " + data.length);
+                handleExecSessionOutput(microserviceUuid, (byte) 0, data);
+            });
+
+            // Set up output handler
+            callback.setOnOutputHandler(data -> {
+                LoggingService.logDebug(MODULE_NAME, "Output handler called with data length: " + data.length);
+                handleExecSessionOutput(microserviceUuid, (byte) 1, data);
+            });
+
+            // Set up error handler
+            callback.setOnErrorHandler(data -> {
+                LoggingService.logDebug(MODULE_NAME, "Error handler called with data length: " + data.length);
+                handleExecSessionOutput(microserviceUuid, (byte) 2, data);
+            });
+
+            // Set up close handler
+            callback.setOnCloseHandler(() -> {
+                LoggingService.logDebug(MODULE_NAME, "Close handler called");
+                cleanupExecSession(microserviceUuid);
+            });
+
+            LoggingService.logDebug(MODULE_NAME, "Successfully set up exec session callback handlers");
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error setting up exec session callback", e);
         }
-        
-        logDebug("Finished handling exec sessions");
+    }
+
+    private void cleanupExecSession(String microserviceUuid) {
+        try {
+            LoggingService.logInfo(MODULE_NAME, "Cleaning up exec session for microservice: " + microserviceUuid);
+            
+            // Remove from active sessions
+            activeExecSessions.remove(microserviceUuid);
+            
+            // Cleanup callback
+            ExecSessionCallback callback = activeExecCallbacks.remove(microserviceUuid);
+            if (callback != null) {
+                callback.close();
+            }
+            
+            // Cleanup WebSocket if no other sessions
+            if (!activeExecSessions.containsKey(microserviceUuid)) {
+                ExecSessionWebSocketHandler handler = activeWebSockets.remove(microserviceUuid);
+                if (handler != null) {
+                    handler.disconnect();
+                }
+            }
+            
+            LoggingService.logInfo(MODULE_NAME, "Exec session cleanup completed");
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error cleaning up exec session", e);
+        }
+    }
+
+    private void handleExecSessionOutput(String microserviceUuid, byte outputType, byte[] output) {
+        try {
+            LoggingService.logDebug(MODULE_NAME, "Handling exec session output for microservice: " + microserviceUuid + 
+                ", type: " + outputType + ", length: " + output.length);
+            
+            ExecSessionWebSocketHandler handler = activeWebSockets.get(microserviceUuid);
+            if (handler == null) {
+                LoggingService.logWarning(MODULE_NAME, "No active WebSocket handler found for microservice: " + microserviceUuid);
+                return;
+            }
+            
+            if (!handler.isConnected()) {
+                LoggingService.logWarning(MODULE_NAME, "WebSocket handler not connected for microservice: " + microserviceUuid);
+                return;
+            }
+            
+            handler.sendMessage(outputType, output);
+            LoggingService.logDebug(MODULE_NAME, "Successfully sent output to WebSocket");
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error handling exec session output", e);
+        }
+    }
+
+    public Map<String, String> getActiveExecSessions() {
+        return Collections.unmodifiableMap(activeExecSessions);
+    }
+
+    public Map<String, ExecSessionCallback> getExecCallbacks() {
+        return Collections.unmodifiableMap(execCallbacks);
+    }
+
+    public Map<String, ExecSessionCallback> getActiveExecCallbacks() {
+        return Collections.unmodifiableMap(activeExecCallbacks);
+    }
+
+    public Map<String, ExecSessionWebSocketHandler> getActiveWebSockets() {
+        return Collections.unmodifiableMap(activeWebSockets);
     }
 
     private String getCurrentExecSessionId(String microserviceUuid) {
-        LoggingService.logDebug(MODULE_NAME, "Getting current exec session ID for microservice: " + microserviceUuid);
-        String execId = activeExecSessions.get(microserviceUuid);
-        LoggingService.logDebug(MODULE_NAME, "Found exec session ID: " + execId);
-        return execId;
+        return activeExecSessions.get(microserviceUuid);
+    }
+
+    public void handleExecSessionClose(String microserviceUuid, String execId) {
+        LoggingService.logInfo(MODULE_NAME, "Handling exec session close for microservice: " + microserviceUuid + 
+            ", execId: " + execId);
+        
+        try {
+            // Kill the exec session
+            LoggingService.logDebug(MODULE_NAME, "Killing exec session: " + execId);
+            ProcessManager.getInstance().killExecSession(execId);
+            LoggingService.logDebug(MODULE_NAME, "Successfully killed exec session: " + execId);
+            
+            // Cleanup session tracking
+            if (activeExecSessions.containsKey(microserviceUuid) && 
+                activeExecSessions.get(microserviceUuid).equals(execId)) {
+                LoggingService.logDebug(MODULE_NAME, "Removing exec session from tracking");
+                activeExecSessions.remove(microserviceUuid);
+            }
+            
+            // Cleanup callback
+            ExecSessionCallback callback = activeExecCallbacks.remove(microserviceUuid);
+            if (callback != null) {
+                LoggingService.logDebug(MODULE_NAME, "Cleaning up callback");
+                callback.close();
+            }
+            
+            // Cleanup WebSocket if no other sessions
+            if (!activeExecSessions.containsKey(microserviceUuid)) {
+                LoggingService.logDebug(MODULE_NAME, "No other active sessions, cleaning up WebSocket");
+                ExecSessionWebSocketHandler handler = activeWebSockets.remove(microserviceUuid);
+                if (handler != null) {
+                    handler.disconnect();
+                }
+            } else {
+                LoggingService.logDebug(MODULE_NAME, "Other active sessions exist, keeping WebSocket connection");
+            }
+            
+            LoggingService.logInfo(MODULE_NAME, "Exec session close handling completed for microservice: " + microserviceUuid);
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error handling exec session close", e);
+        }
     }
 }

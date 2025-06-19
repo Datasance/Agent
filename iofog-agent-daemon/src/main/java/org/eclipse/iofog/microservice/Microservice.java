@@ -50,6 +50,7 @@ public class Microservice {
     private String pidMode;
     private String ipcMode;
     private boolean execEnabled;
+    private int schedule;
 
     private boolean delete;
     private boolean deleteWithCleanup;
@@ -83,6 +84,14 @@ public class Microservice {
 
     public void setRegistryId(int registryId) {
         this.registryId = registryId;
+    }
+
+    public int getSchedule() {
+        return schedule;
+    }
+    
+    public void setSchedule(int schedule) {
+        this.schedule = schedule;
     }
 
     public String getContainerId() {

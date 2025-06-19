@@ -173,12 +173,12 @@ public final class Configuration {
     	LoggingService.logInfo(MODULE_NAME, "Start update Automatic ConfigParams ");
         switch (fogType) {
             case ARM:
-                statusReportFreqSeconds = 10;
+                statusReportFreqSeconds = 5;
                 pingControllerFreqSeconds = 60;
                 speedCalculationFreqMinutes = 1;
-                monitorContainersStatusFreqSeconds = 30;
-                monitorRegistriesStatusFreqSeconds = 120;
-                getUsageDataFreqSeconds = 20;
+                monitorContainersStatusFreqSeconds = 10;
+                monitorRegistriesStatusFreqSeconds = 60;
+                getUsageDataFreqSeconds = 5;
                 dockerApiVersion = "1.45";
                 setSystemTimeFreqSeconds = 60;
                 monitorSshTunnelStatusFreqSeconds = 30;
@@ -192,7 +192,7 @@ public final class Configuration {
                 getUsageDataFreqSeconds = 5;
                 dockerApiVersion = "1.45";
                 setSystemTimeFreqSeconds = 60;
-                monitorSshTunnelStatusFreqSeconds = 10;
+                monitorSshTunnelStatusFreqSeconds = 30;
                 break;
         }
         LoggingService.logInfo(MODULE_NAME, "Finished update Automatic ConfigParams ");
@@ -1703,5 +1703,37 @@ public final class Configuration {
 
     public static void setTlsKey(String tlsKey) {
         Configuration.tlsKey = tlsKey;
+    }
+
+    /**
+     * Converts the controller HTTP/HTTPS URL to its WebSocket equivalent (ws/wss).
+     * Preserves port numbers and path components.
+     * 
+     * @return WebSocket URL for the controller
+     * @throws AgentSystemException if the controller URL is invalid or cannot be converted
+     */
+    public static String getControllerWSUrl() throws AgentSystemException {
+        
+        if (getControllerUrl() == null || getControllerUrl().isEmpty()) {
+            throw new AgentSystemException("Controller URL is not configured", null);
+        }
+
+        try {
+            // Remove trailing slash if present
+            String url = getControllerUrl();
+
+            // Convert protocol
+            if (url.startsWith("http://")) {
+                url = "ws://" + url.substring(7);
+            } else if (url.startsWith("https://")) {
+                url = "wss://" + url.substring(8);
+            } else {
+                throw new AgentSystemException("Invalid controller URL protocol. Must be http:// or https://", null);
+            }
+            return url;
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Failed to convert controller URL to WebSocket URL", e);
+            throw new AgentSystemException("Failed to convert controller URL to WebSocket URL: " + e.getMessage(), e);
+        }
     }
 }

@@ -151,6 +151,7 @@ public class ConfigurationTest {
             assertEquals(60,  Configuration.getSetSystemTimeFreqSeconds());
             assertEquals("/etc/iofog-agent/cert.crt", Configuration.getControllerCert());
             assertEquals("http://localhost:54421/api/v3/",Configuration.getControllerUrl());
+            assertEquals("ws://localhost:54421/api/v3/",Configuration.getControllerWSUrl());
             assertEquals("unix:///var/run/docker.sock", Configuration.getDockerUrl());
             assertEquals("/var/lib/iofog-agent/", Configuration.getDiskDirectory());
             assertEquals(10, Configuration.getDiskLimit(), 0);

@@ -27,6 +27,8 @@ import java.util.concurrent.TimeUnit;
 import static org.eclipse.iofog.microservice.Microservice.deleteLock;
 import com.github.dockerjava.api.model.Frame;
 import org.eclipse.iofog.process_manager.ExecSessionCallback;
+import java.util.concurrent.CompletableFuture;
+import java.io.PipedInputStream;
 
 /**
  * provides methods to manage Docker containers
@@ -258,10 +260,17 @@ public class ContainerManager {
 				case CREATE_EXEC:
 					if (microserviceOptional.isPresent()) {
 						ExecSessionCallback pmCallback = task.getCallback();
+						// Get the stdin pipe from ProcessManager.ExecSessionCallback
+						PipedInputStream stdinPipe = pmCallback.getStdinPipe();
+						if (stdinPipe == null) {
+							throw new AgentSystemException("Failed to get stdin pipe from callback", null);
+						}
+						
 						// Create a new DockerUtil.ExecSessionCallback that forwards to the ProcessManager callback
 						DockerUtil.ExecSessionCallback dockerCallback = docker.new ExecSessionCallback(
 							"iofog_" + task.getMicroserviceUuid(), // Use a unique ID for the exec session
-							30 // 30 minutes timeout
+							30, // 30 minutes timeout
+							stdinPipe
 						) {
 							@Override
 							public void onNext(Frame frame) {
@@ -286,7 +295,15 @@ public class ContainerManager {
 								pmCallback.onComplete();
 							}
 						};
-						createExecSession(task.getMicroserviceUuid(), task.getCommand(), dockerCallback);
+						String execId = createExecSession(task.getMicroserviceUuid(), task.getCommand(), dockerCallback);
+						task.setExecId(execId);
+						LoggingService.logDebug(MODULE_NAME, "Task created exec session: " + task.getExecId());
+						
+						// Complete the future with the exec ID
+						CompletableFuture<String> future = task.getFuture();
+						if (future != null) {
+							future.complete(execId);
+						}
 					}
 					break;
 				case KILL_EXEC:

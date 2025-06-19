@@ -38,6 +38,8 @@ import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
 import org.eclipse.iofog.network.IOFogNetworkInterfaceManager;
 import org.eclipse.iofog.process_manager.ExecSessionStatus;
+import com.github.dockerjava.httpclient5.ApacheDockerHttpClient;
+import com.github.dockerjava.transport.DockerHttpClient;
 
 import jakarta.json.Json;
 import jakarta.json.JsonObject;
@@ -96,7 +98,17 @@ public class DockerUtil {
                 configBuilder = configBuilder.withApiVersion(Configuration.getDockerApiVersion());
             }
             DockerClientConfig config = configBuilder.build();
-            dockerClient = DockerClientBuilder.getInstance(config).build();
+            
+            // Create a custom DockerHttpClient that supports hijacking
+            DockerHttpClient httpClient = new ApacheDockerHttpClient.Builder()
+                .dockerHost(config.getDockerHost())
+                .sslConfig(config.getSSLConfig())
+                .maxConnections(100)
+                .build();
+                
+            dockerClient = DockerClientBuilder.getInstance(config)
+                .withDockerHttpClient(httpClient)
+                .build();
             
             // Ensure pot network exists during initialization
             ensurePotNetworkExists();
@@ -390,13 +402,11 @@ public class DockerUtil {
                         result.setIpAddress("UNKNOWN");
                     }
                     
-                    // Get exec session ID if available
+                    // Get all exec session IDs if available
                     if (inspectInfo.getExecIds() != null && !inspectInfo.getExecIds().isEmpty()) {
-                        // Get the most recent exec session ID
-                        String execId = inspectInfo.getExecIds().get(inspectInfo.getExecIds().size() - 1);
-                        result.setExecSessionId(execId);
+                        result.setExecSessionIds(inspectInfo.getExecIds());
                     } else {
-                        result.setExecSessionId("");
+                        result.setExecSessionIds(new ArrayList<>());
                     }
                 }
             }
@@ -1048,7 +1058,8 @@ public class DockerUtil {
      * @throws Exception if session creation fails
      */
     public String createExecSession(String containerId, String[] command) throws Exception {
-        LoggingService.logInfo(MODULE_NAME, "Creating exec session for container: " + containerId);
+        LoggingService.logInfo(MODULE_NAME, "Creating exec session for container: " + containerId + 
+            ", command: " + String.join(" ", command));
         try {
             ExecCreateCmdResponse response = dockerClient.execCreateCmd(containerId)
                 .withCmd(command)
@@ -1075,10 +1086,29 @@ public class DockerUtil {
     public void startExecSession(String execId, ExecSessionCallback callback) throws Exception {
         LoggingService.logInfo(MODULE_NAME, "Starting exec session: " + execId);
         try {
+            LoggingService.logDebug(MODULE_NAME, "Checking callback before starting exec session: " + 
+                "callback=" + (callback != null) + 
+                ", stdin=" + (callback != null && callback.getStdin() != null) + 
+                ", stdinPipe=" + (callback != null && callback.getStdinPipe() != null));
+            
+            // Get the stdin pipe from the callback
+            PipedInputStream stdinPipe = callback.getStdinPipe();
+            if (stdinPipe == null) {
+                throw new IOException("Stdin pipe is null");
+            }
+            
+            LoggingService.logDebug(MODULE_NAME, "Starting exec session with stdin pipe: " + 
+                "stdinPipe=" + (stdinPipe != null) + 
+                ", available=" + stdinPipe.available());
+            
+            // Start the exec session with all pipes connected
             dockerClient.execStartCmd(execId)
                 .withDetach(false)
                 .withTty(true)
+                .withStdIn(stdinPipe)  // Connect stdin pipe
                 .exec(callback);
+            
+            LoggingService.logDebug(MODULE_NAME, "Exec session started successfully with stdin pipe connected");
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error starting exec session", e);
             throw e;
@@ -1142,16 +1172,23 @@ public class DockerUtil {
         private PipedInputStream ptyStdinPipe;
         private long lastActivityTime;
 
-        public ExecSessionCallback(String execId, long inactivityTimeoutMinutes) {
+        public ExecSessionCallback(String execId, long inactivityTimeoutMinutes, PipedInputStream stdinPipe) {
             this.execId = execId;
             this.startTime = System.currentTimeMillis();
             this.inactivityTimeoutMinutes = inactivityTimeoutMinutes;
             this.lastActivityTime = startTime;
+            
+            // Use the provided pipe instead of creating a new one
+            this.ptyStdinPipe = stdinPipe;
+            
+            // Create the output stream connected to the input pipe
             try {
-                this.ptyStdin = new PipedOutputStream();
-                this.ptyStdinPipe = new PipedInputStream(ptyStdin);
+                this.ptyStdin = new PipedOutputStream(ptyStdinPipe);
+                LoggingService.logDebug(MODULE_NAME, "Created output stream for exec session: " + execId + 
+                    ", ptyStdin=" + (ptyStdin != null) + 
+                    ", ptyStdinPipe=" + (ptyStdinPipe != null));
             } catch (IOException e) {
-                LoggingService.logError(MODULE_NAME, "Failed to create pipes for exec session: " + execId, e);
+                LoggingService.logError(MODULE_NAME, "Failed to create output stream for exec session: " + execId, e);
             }
         }
 
@@ -1217,10 +1254,16 @@ public class DockerUtil {
         }
 
         public void writeInput(byte[] input) throws IOException {
+            LoggingService.logDebug(MODULE_NAME, "Writing input to exec session: " + execId + 
+                ", length=" + input.length + 
+                ", ptyStdin=" + (ptyStdin != null));
             if (ptyStdin != null) {
                 ptyStdin.write(input);
                 ptyStdin.flush();
                 resetInactivityTimer();
+                LoggingService.logDebug(MODULE_NAME, "Successfully wrote input to exec session");
+            } else {
+                LoggingService.logWarning(MODULE_NAME, "Cannot write input - ptyStdin is null");
             }
         }
     }
