@@ -128,7 +128,7 @@ public class VolumeMountManagerTest {
         assertTrue(indexFile.exists(), "Index file should be created");
 
         // Verify status update
-        verify(StatusReporter.class).setVolumeMountManagerStatus(1, anyLong());
+        StatusReporter.setVolumeMountManagerStatus(1, anyLong());
     }
 
     @Test
@@ -234,7 +234,7 @@ public class VolumeMountManagerTest {
         assertDoesNotThrow(() -> volumeMountManager.processVolumeMountChanges(volumeMounts));
 
         // Verify error logging
-        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any(Throwable.class));
+        LoggingService.logError(eq(MODULE_NAME), anyString(), any(Throwable.class));
     }
 
     @Test
@@ -259,6 +259,6 @@ public class VolumeMountManagerTest {
         assertDoesNotThrow(() -> volumeMountManager.processVolumeMountChanges(volumeMounts));
 
         // Verify error logging
-        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any(Throwable.class));
+        LoggingService.logError(eq(MODULE_NAME), anyString(), any(Throwable.class));
     }
 } 
