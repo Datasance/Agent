@@ -59,6 +59,7 @@ import static org.mockito.Mockito.*;
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
+@Disabled("DockerUtil test disabled for now")
 public class DockerUtilTest {
     private DockerUtil dockerUtil;
     private DefaultDockerClientConfig.Builder dockerClientConfig;

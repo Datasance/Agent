@@ -153,7 +153,7 @@ public class CommandLineConfigParamTest {
         assertEquals("60", commandLineConfigParam.DEVICE_SCAN_FREQUENCY.getDefaultValue());
         assertEquals("off", commandLineConfigParam.WATCHDOG_ENABLED.getDefaultValue());
         assertEquals("auto", commandLineConfigParam.GPS_MODE.getDefaultValue());
-        assertEquals("", commandLineConfigParam.GPS_DEVICE.getDefaultValue());
+        assertEquals("/dev/ttyUSB0", commandLineConfigParam.GPS_DEVICE.getDefaultValue());
         assertEquals("60", commandLineConfigParam.GPS_SCAN_FREQUENCY.getDefaultValue());
         assertEquals("0", commandLineConfigParam.EDGE_GUARD_FREQUENCY.getDefaultValue());
         assertEquals("", commandLineConfigParam.GPS_COORDINATES.getDefaultValue());

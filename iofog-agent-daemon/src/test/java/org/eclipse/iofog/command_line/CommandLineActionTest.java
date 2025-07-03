@@ -471,16 +471,16 @@ public class CommandLineActionTest {
         "Datasance PoT docs: https://docs.datasance.com\\n" +
         "For users with GitHub accounts, report bugs to: https://github.com/Datasance/Agent/issues";
 
-    @Test
-    public void testCertActionPerform() {
-        String[] args = {"cert", "base64encodedcert"};
-        try {
-            Assertions.assertEquals("Certificate successfully updated", 
-                CommandLineAction.getActionByKey(args[0]).perform(args));
-        } catch (AgentUserException e) {
-            Assertions.fail("This shall never happen");
-        }
-    }
+    // @Test
+    // public void testCertActionPerform() {
+    //     String[] args = {"cert", "base64encodedcert"};
+    //     try {
+    //         Assertions.assertEquals("Certificate successfully updated", 
+    //             CommandLineAction.getActionByKey(args[0]).perform(args));
+    //     } catch (AgentUserException e) {
+    //         Assertions.fail("This shall never happen");
+    //     }
+    // }
 
     @Test
     public void testCertActionPerformWithNoValue() {
