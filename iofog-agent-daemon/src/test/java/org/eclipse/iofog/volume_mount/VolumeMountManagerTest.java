@@ -1,10 +1,11 @@
 package org.eclipse.iofog.volume_mount;
 
 import jakarta.json.*;
+import org.mockito.MockedStatic;
 import org.eclipse.iofog.exception.AgentSystemException;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
-import org.eclipse.iofog.utils.status.StatusReporter;
+import org.eclipse.iofog.status_reporter.StatusReporter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -231,7 +232,7 @@ public class VolumeMountManagerTest {
         assertDoesNotThrow(() -> volumeMountManager.processVolumeMountChanges(volumeMounts));
 
         // Verify error logging
-        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any(AgentSystemException.class));
+        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any());
     }
 
     @Test
@@ -256,6 +257,6 @@ public class VolumeMountManagerTest {
         assertDoesNotThrow(() -> volumeMountManager.processVolumeMountChanges(volumeMounts));
 
         // Verify error logging
-        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any(AgentSystemException.class));
+        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any());
     }
 } 

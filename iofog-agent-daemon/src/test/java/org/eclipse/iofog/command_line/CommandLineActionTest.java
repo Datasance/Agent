@@ -18,7 +18,8 @@ import org.eclipse.iofog.field_agent.FieldAgent;
 import org.eclipse.iofog.status_reporter.StatusReporter;
 import org.eclipse.iofog.utils.CmdProperties;
 import org.eclipse.iofog.utils.configuration.Configuration;
-import org.eclipse.iofog.utils.gps.GpsMode;
+import org.eclipse.iofog.gps.GpsMode;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Base64;
+import jakarta.json.Json;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,6 +46,7 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.eclipse.iofog.utils.CmdProperties.getVersion;
+import static org.mockito.ArgumentMatchers.anyMap;
 
 /**
  * @author nehanaithani
@@ -57,7 +60,7 @@ public class CommandLineActionTest {
     private static MockedStatic<Configuration> configurationMockedStatic;
     @Mock
     private static FieldAgent fieldAgent;
-    private static List stop = new ArrayList(Collections.singleton("stop"));;
+    private static List<String> stop = new ArrayList<>(Collections.singleton("stop"));;
     private static HashMap<String, String> result;
 
     @BeforeEach

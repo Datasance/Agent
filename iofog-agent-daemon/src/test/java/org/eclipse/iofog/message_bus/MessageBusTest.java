@@ -258,7 +258,7 @@ public class MessageBusTest {
     public void testStart() {
         try {
             initiateMockStart();
-            Mockito.verify(messageBusServer, atLeastOnce()).startServer("localhost", 5672);
+            Mockito.verify(messageBusServer, atLeastOnce()).startServer("localhost", 5672, null, null, null);
             Mockito.verify(messageBusServer, atLeastOnce()).initialize();
             Mockito.verify(LoggingService.class);
             LoggingService.logInfo(MODULE_NAME,"STARTING MESSAGE BUS SERVER");

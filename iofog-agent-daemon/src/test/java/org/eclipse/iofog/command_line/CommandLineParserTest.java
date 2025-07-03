@@ -14,6 +14,7 @@ package org.eclipse.iofog.command_line;
 
 import org.eclipse.iofog.exception.AgentUserException;
 import org.eclipse.iofog.field_agent.FieldAgent;
+import static org.eclipse.iofog.utils.CmdProperties.getVersion;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.MockedStatic;
