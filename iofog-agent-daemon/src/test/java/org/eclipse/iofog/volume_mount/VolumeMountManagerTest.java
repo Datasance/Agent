@@ -181,7 +181,8 @@ public class VolumeMountManagerTest {
         assertEquals("updated content", file1Content, "File content should be updated");
 
         // Verify status update
-        verify(StatusReporter.class, times(2)).setVolumeMountManagerStatus(1, anyLong());
+        verify(StatusReporter.class, times(2));
+        StatusReporter.setVolumeMountManagerStatus(1, anyLong());
     }
 
     @Test
@@ -213,7 +214,8 @@ public class VolumeMountManagerTest {
         assertFalse(Files.exists(mountPath), "Volume mount directory should be deleted");
 
         // Verify status update
-        verify(StatusReporter.class, times(2)).setVolumeMountManagerStatus(anyInt(), anyLong());
+        verify(StatusReporter.class, times(2));
+        StatusReporter.setVolumeMountManagerStatus(anyInt(), anyLong());
     }
 
     @Test
