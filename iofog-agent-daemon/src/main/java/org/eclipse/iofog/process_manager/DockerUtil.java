@@ -27,6 +27,8 @@ import com.github.dockerjava.core.DockerClientConfig;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.PullImageResultCallback;
 import com.github.dockerjava.api.model.Capability;
+import com.github.dockerjava.api.command.InspectVolumeCmd;
+import com.github.dockerjava.api.command.InspectVolumeResponse;
 import org.apache.commons.lang3.SystemUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.eclipse.iofog.exception.AgentSystemException;
@@ -712,8 +714,11 @@ public class DockerUtil {
                     LoggingService.logInfo(MODULE_NAME , String.format("volume access mode set to RW for image \"%s\" ", microservice.getImageName()));
                 }
 
+                // Resolve host destination for volume mounts
+                String resolvedHostDestination = resolveVolumeMountPath(volumeMapping.getHostDestination());
+
                 Mount mount = (new Mount())
-                        .withSource(volumeMapping.getHostDestination())
+                        .withSource(resolvedHostDestination)
                         .withType(volumeMapping.getType() == VolumeMappingType.BIND ? MountType.BIND : MountType.VOLUME)
                         .withTarget(volumeMapping.getContainerDestination())
                         .withReadOnly(isReadOnly);
@@ -1020,6 +1025,51 @@ public class DockerUtil {
         return null;
     }
 
+    /**
+     * Resolves volume mount paths that start with $VolumeMount prefix
+     * @param hostDestination The host destination path from volume mapping
+     * @return Resolved host destination path
+     */
+    private String resolveVolumeMountPath(String hostDestination) {
+        // Check if this is a volume mount reference
+        if (!hostDestination.startsWith("$VolumeMount/")) {
+            return hostDestination; // Return as-is if not a volume mount
+        }
+        
+        // Extract the volume name from $VolumeMount/name
+        String volumeName = hostDestination.substring("$VolumeMount/".length());
+        
+        // Check if agent is running in container
+        boolean isContainer = "container".equals(System.getenv("IOFOG_DAEMON").toLowerCase());
+        
+        if (!isContainer) {
+            // Agent running on host - use disk directory directly
+            return Configuration.getDiskDirectory() + "volumes/" + volumeName;
+        } else {
+            // Agent running in container - need to check volume mounting
+            try {
+                // Check if iofog-agent-directory volume exists
+                List<InspectVolumeResponse> volumes = dockerClient.listVolumesCmd().exec().getVolumes();
+                boolean volumeExists = volumes.stream()
+                    .anyMatch(vol -> "iofog-agent-directory".equals(vol.getName()));
+                
+                if (volumeExists) {
+                    // Volume exists - inspect it to get mount point
+                    InspectVolumeResponse volumeInfo = dockerClient.inspectVolumeCmd("iofog-agent-directory").exec();
+                    String mountPoint = volumeInfo.getMountpoint();
+                    return mountPoint + "/volumes/" + volumeName;
+                } else {
+                    // Volume doesn't exist - assume bind mount, use disk directory
+                    return Configuration.getDiskDirectory() + "volumes/" + volumeName;
+                }
+            } catch (Exception e) {
+                LoggingService.logWarning(MODULE_NAME, 
+                    "Error checking volume mount, falling back to disk directory: " + e.getMessage());
+                return Configuration.getDiskDirectory() + "volumes/" + volumeName;
+            }
+        }
+    }
+
     class ItemStatus {
         private String id;
         private int percentage;
@@ -1148,8 +1198,7 @@ public class DockerUtil {
             InspectExecResponse response = dockerClient.inspectExecCmd(execId).exec();
             if (response.isRunning()) {
                 LoggingService.logInfo(MODULE_NAME, "Exec session is still running: " + execId);
-                // Note: We can't directly kill the exec session, but we can log this information
-                // The session will eventually complete on its own
+                    // TODO: exit exec session
             } else {
                 LoggingService.logInfo(MODULE_NAME, "Exec session has already completed: " + execId);
             }

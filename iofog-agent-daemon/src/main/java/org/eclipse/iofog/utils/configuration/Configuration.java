@@ -779,6 +779,7 @@ public final class Configuration {
                         LoggingService.logInfo(MODULE_NAME, "Setting gps mode");
                         try {
                             if (value.toLowerCase().equals("dynamic")) {
+                                Configuration.setGpsMode(GpsMode.DYNAMIC);
                                 startGpsDeviceHandler();
                             } else {
                                 configureGps(value, gpsCoordinates);

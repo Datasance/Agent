@@ -12,6 +12,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Handles communication with GPS device and updates configuration with coordinates
@@ -105,8 +107,9 @@ public class GpsDeviceHandler {
         }
 
         try {
-            String message = deviceReader.readLine();
+            String message = readLineWithTimeout(deviceReader, 5000);
             if (message == null) {
+                LoggingService.logWarning(MODULE_NAME, "GPS device timeout - no data received within 5 seconds, skipping this round");
                 return;
             }
 
@@ -121,6 +124,35 @@ public class GpsDeviceHandler {
             }
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error reading GPS coordinates: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Read a line from BufferedReader with timeout
+     * @param reader BufferedReader to read from
+     * @param timeoutMs timeout in milliseconds
+     * @return the line read, or null if timeout occurred
+     */
+    private String readLineWithTimeout(BufferedReader reader, int timeoutMs) {
+        CompletableFuture<String> future = null;
+        try {
+            future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return reader.readLine();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            
+            return future.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            if (future != null) {
+                future.cancel(true);
+            }
+            return null;
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error in readLineWithTimeout: " + e.getMessage(), e);
+            return null;
         }
     }
 } 

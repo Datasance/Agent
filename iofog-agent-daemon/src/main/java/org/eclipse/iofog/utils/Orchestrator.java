@@ -18,6 +18,7 @@ import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.*;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.entity.mime.Header;
@@ -52,6 +53,7 @@ import javax.ws.rs.InternalServerErrorException;
 import javax.ws.rs.NotFoundException;
 import javax.ws.rs.ServerErrorException;
 import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLException;
 import java.util.Base64;
 
 import java.io.*;
@@ -146,18 +148,33 @@ public class Orchestrator {
     private void initialize(boolean secure) throws AgentSystemException {
     	logDebug(MODULE_NAME, "Start initialize TrustManager");
         if (secure) {
-            SSLContext sslContext;
-			try {
-				sslContext = SSLContext.getInstance("TLS");
-				sslContext.init(null, TrustManagers.createTrustManager(controllerCert), new SecureRandom());
-				SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(sslContext);
-	            client = HttpClients.custom().setSSLSocketFactory(sslsf).build();
-			} catch (Exception e) {
-				throw new AgentSystemException(e.getMessage(), e );		
-			}
-            
+            try {
+                SSLContext sslContext = SSLContext.getInstance("TLS");
+                sslContext.init(null, TrustManagers.createTrustManager(controllerCert), new SecureRandom());
+
+                SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
+                    sslContext,
+                    new String[]{"TLSv1.2"},
+                    null,
+                    NoopHostnameVerifier.INSTANCE
+                );
+
+                client = HttpClients.custom()
+                    .setSSLSocketFactory(sslsf)
+                    .disableConnectionState()
+                    .setConnectionReuseStrategy((response, context) -> false)
+                    .disableCookieManagement()
+                    .build();
+
+            } catch (Exception e) {
+                throw new AgentSystemException(e.getMessage(), e);
+            }
         } else {
-            client = HttpClients.createDefault();
+            client = HttpClients.custom()
+                .disableConnectionState()
+                .setConnectionReuseStrategy((response, context) -> false)
+                .disableCookieManagement()
+                .build();
         }
         logDebug(MODULE_NAME, "Finished initialize TrustManager");
     }
@@ -244,8 +261,8 @@ public class Orchestrator {
         			new AgentUserException(e.getMessage(), e));
     		throw new AgentUserException(e.getMessage(), e );
     		
-    	} catch (SSLHandshakeException | CertificateException e) {
-            // Certificate validation failed, attempt to renew
+    	} catch (CertificateException e) {
+            // Only renew for actual certificate validation failures
             logWarning(MODULE_NAME, "Certificate validation failed, attempting to renew certificate");
             try {
                 // First, initialize with insecure SSL context to get the new certificate
@@ -273,6 +290,11 @@ public class Orchestrator {
                 logError(MODULE_NAME, "Failed to update certificate", ex);
                 throw new AgentUserException("Failed to update certificate: " + ex.getMessage(), ex);
             }
+    		
+    	} catch (SSLHandshakeException e) {
+            // Handle SSL handshake failures separately (not certificate issues)
+            logError(MODULE_NAME, "SSL handshake failed", e);
+            throw new AgentUserException("SSL handshake failed: " + e.getMessage(), e);
     		
     	} catch (IOException e) {
             try {
@@ -357,7 +379,8 @@ public class Orchestrator {
         req.setConfig(config);
 
         // Generate and add JWT token only for non-provisioning requests
-        if (!uri.toString().endsWith("provision")) {
+        // Specifically exclude /agent/provision but include /agent/deprovision
+        if (!uri.toString().endsWith("/agent/provision")) {
             String jwtToken = JwtManager.generateJwt();
             if (jwtToken == null) {
                 logError(MODULE_NAME, "Failed to generate JWT token", new AgentSystemException("Failed to generate JWT token"));
@@ -486,6 +509,9 @@ public class Orchestrator {
 
             CloseableHttpClient httpClient = HttpClients.custom()
                 .setSSLSocketFactory(TrustManagers.getInsecureSocketFactory())
+                .disableConnectionState()
+                .setConnectionReuseStrategy((resp, context) -> false)
+                .disableCookieManagement()
                 .build();
 
             try (CloseableHttpResponse httpResponse = httpClient.execute(request)) {

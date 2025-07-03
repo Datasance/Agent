@@ -58,6 +58,7 @@ import java.security.MessageDigest;
 import java.security.cert.CertificateException;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -1651,9 +1652,18 @@ public class FieldAgent implements IOFogModule {
                 return "\nFailure - not provisioned";
             }
 
+            // Store configuration values before clearing them
+            String iofogUuid = Configuration.getIofogUuid();
+            String privateKey = Configuration.getPrivateKey();
+            
+            // Attempt deprovision request if not token expired
+            boolean deprovisionRequestSuccessful = false;
             if (!isTokenExpired) {
                 try {
+                    logDebug("Attempting deprovision request to controller");
                     orchestrator.request("deprovision", RequestType.POST, null, getDeprovisionBody());
+                    logInfo("Deprovision request completed successfully");
+                    deprovisionRequestSuccessful = true;
                 } catch (CertificateException | SSLHandshakeException e) {
                     verificationFailed(e);
                     logError("Unable to make deprovision request due to broken certificate ",
@@ -1662,16 +1672,22 @@ public class FieldAgent implements IOFogModule {
                     logError("Unable to make deprovision request ",
                             new AgentSystemException(e.getMessage(), e));
                 }
+            } else {
+                // If token is expired, we skip the deprovision request
+                logInfo("Skipping deprovision request due to expired token");
             }
 
+            // Update status to NOT_PROVISIONED
             StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
-            String iofogUuid = Configuration.getIofogUuid();
+            
+            // Clear configuration AFTER the deprovision request attempt
             boolean configUpdated = true;
             try {
                 Configuration.setIofogUuid("");
                 // Configuration.setAccessToken("");
                 Configuration.setPrivateKey("");
                 Configuration.saveConfigUpdates();
+                logDebug("Configuration cleared successfully");
             } catch (Exception e) {
                 configUpdated = false;
                 try {
@@ -1684,13 +1700,18 @@ public class FieldAgent implements IOFogModule {
                     Configuration.updateConfigBackUpFile();
                 }
             }
+            
+            // Clear microservice manager
             microserviceManager.clear();
+            
+            // Stop running microservices
             try {
                 ProcessManager.getInstance().stopRunningMicroservices(false, iofogUuid);
             } catch (Exception e) {
                 logError("Error stopping running microservices",
                         new AgentSystemException(e.getMessage(), e));
             }
+            
             // Clear volume mounts
             try {
                 volumeMountManager.clear();
@@ -1699,12 +1720,25 @@ public class FieldAgent implements IOFogModule {
                         new AgentSystemException(e.getMessage(), e));
             }
 
-            notifyModules();
-            logInfo("Finished Deprovisioning : Success - tokens, identifiers and keys removed");
+            // Notify modules AFTER configuration is cleared, but handle JWT failures gracefully
+            try {
+                logDebug("Notifying modules after configuration update");
+                notifyModules();
+                logDebug("Module notification completed");
+            } catch (Exception e) {
+                logWarning("Some module notifications failed during deprovisioning: " + e.getMessage());
+            }
+            
+            String resultMessage = deprovisionRequestSuccessful ? 
+                "Success - deprovisioned from controller and cleaned up locally" :
+                "Success - cleaned up locally (controller deprovision failed)";
+            
+            logInfo("Finished Deprovisioning : " + resultMessage);
+            return "\n" + resultMessage;
+            
         } finally {
             provisioningLock.unlock();
         }
-        return "\nSuccess - tokens, identifiers and keys removed";
     }
 
     private JsonObject getDeprovisionBody() {

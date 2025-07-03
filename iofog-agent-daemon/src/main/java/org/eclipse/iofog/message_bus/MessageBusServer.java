@@ -103,7 +103,7 @@ public class MessageBusServer {
         
         if (caCert != null && !caCert.trim().isEmpty()) {
             try {
-                trustManagers = TrustManagers.createTrustManager(
+                trustManagers = TrustManagers.createRouterTrustManager(
                     CertificateFactory.getInstance("X.509").generateCertificate(
                         new ByteArrayInputStream(Base64.getDecoder().decode(caCert))));
             } catch (Exception e) {

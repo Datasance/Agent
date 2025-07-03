@@ -98,12 +98,158 @@ public final class TrustManagers {
                     }
                 }
 
-                throw new CertificateException("Unable to validate server certificate", last);
+                throw new CertificateException("Unable to validate server certificate for controller connection", last);
             }
 
             @Override
             public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
-                throw new CertificateException("Client certificates validation is not supported");
+                throw new CertificateException("Client certificates validation for controller is not supported");
+            }
+        };
+
+        return new javax.net.ssl.TrustManager[]{combinedTrustManager};
+    }
+
+    public static javax.net.ssl.TrustManager[] createRouterTrustManager(final Certificate routerCert) throws Exception {
+
+        // the final list of trust managers
+
+        final List<X509TrustManager> trustManagers = new ArrayList<>();
+
+        // add the default system trust anchors
+
+        {
+
+            // create the trust manager factory using he default
+
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            tmf.init((KeyStore) null);
+
+            // add the trust managers
+
+            addAllX509(trustManagers, tmf.getTrustManagers());
+        }
+
+        // now add the specific router certificate
+
+        if (routerCert != null) {
+
+            // create the keystore
+
+            KeyStore routerCertStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            routerCertStore.load(null, null);
+            routerCertStore.setCertificateEntry("cert", routerCert);
+
+            // create the trust manager factory
+
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            tmf.init(routerCertStore);
+
+            // add the trust managers
+
+            addAllX509(trustManagers, tmf.getTrustManagers());
+
+        }
+
+        X509TrustManager combinedTrustManager = new X509TrustManager() {
+            @Override
+            public X509Certificate[] getAcceptedIssuers() {
+                return new X509Certificate[0];
+            }
+
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+
+                CertificateException last = null;
+
+                for (X509TrustManager tm : trustManagers) {
+                    try {
+                        tm.checkServerTrusted(chain, authType);
+                        return;
+                    } catch (CertificateException ex) {
+                        last = ex;
+                    }
+                }
+
+                throw new CertificateException("Unable to validate server certificate for router connection", last);
+            }
+
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                throw new CertificateException("Client certificates validation for router is not supported");
+            }
+        };
+
+        return new javax.net.ssl.TrustManager[]{combinedTrustManager};
+    }
+
+    public static javax.net.ssl.TrustManager[] createWebSocketTrustManager(final Certificate webSocketCert) throws Exception {
+
+        // the final list of trust managers
+
+        final List<X509TrustManager> trustManagers = new ArrayList<>();
+
+        // add the default system trust anchors
+
+        {
+
+            // create the trust manager factory using he default
+
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            tmf.init((KeyStore) null);
+
+            // add the trust managers
+
+            addAllX509(trustManagers, tmf.getTrustManagers());
+        }
+
+        // now add the specific web socket certificate
+
+        if (webSocketCert != null) {
+
+            // create the keystore
+
+            KeyStore webSocketCertStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            webSocketCertStore.load(null, null);
+            webSocketCertStore.setCertificateEntry("cert", webSocketCert);
+
+            // create the trust manager factory
+
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            tmf.init(webSocketCertStore);
+
+            // add the trust managers
+
+            addAllX509(trustManagers, tmf.getTrustManagers());
+
+        }
+
+        X509TrustManager combinedTrustManager = new X509TrustManager() {
+            @Override
+            public X509Certificate[] getAcceptedIssuers() {
+                return new X509Certificate[0];
+            }
+
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+
+                CertificateException last = null;
+
+                for (X509TrustManager tm : trustManagers) {
+                    try {
+                        tm.checkServerTrusted(chain, authType);
+                        return;
+                    } catch (CertificateException ex) {
+                        last = ex;
+                    }
+                }
+
+                throw new CertificateException("Unable to validate server certificate for websocket connection", last);
+            }
+
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException {
+                throw new CertificateException("Client certificates validation for web socket is not supported");
             }
         };
 

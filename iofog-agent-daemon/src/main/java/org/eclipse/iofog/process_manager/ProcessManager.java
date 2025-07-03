@@ -546,7 +546,7 @@ public class ProcessManager implements IOFogModule {
 	 * @param future - CompletableFuture to complete with exec session ID
 	 */
 	private void waitForContainerAndCreateExecSession(String microserviceUuid, String[] command, 
-													 ExecSessionCallback callback, CompletableFuture<String> future) {
+		ExecSessionCallback callback, CompletableFuture<String> future) {
 		int maxRetries = 60; // 10 minutes total
 		int retryDelayMs = 10000;
 		
@@ -602,7 +602,9 @@ public class ProcessManager implements IOFogModule {
 	 */
 	public void killExecSession(String execId) {
 		LoggingService.logInfo(MODULE_NAME, "Killing exec session: " + execId);
-		ContainerTask task = new ContainerTask(KILL_EXEC, execId, true);
-		addTask(task);
+		if (execId != null) {
+			ContainerTask task = new ContainerTask(KILL_EXEC, execId, true);
+			addTask(task);
+		}
 	}
 }

@@ -453,7 +453,6 @@ public class CommandLineActionTest {
         "                                         use GPS coordinates in DD format to set them manually\\n" +
         "                 -gpsd <device>          Set the GPS device to use (example: /dev/ttyUSB0)\\n" +
         "                 -gpsf <#seconds>        Set the GPS scan frequency\\n" +
-        "                 -eg <on/off>            Set the edge guard mode\\n" +
         "                 -egf <#seconds>         Set the edge guard frequency\\n" +
         "                 -ft <auto               Set fog type.\\n" +
         "                     /intel_amd/arm>     Use auto to detect fog type by system commands,\\n" +

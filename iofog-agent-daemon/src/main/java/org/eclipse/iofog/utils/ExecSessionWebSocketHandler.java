@@ -140,7 +140,7 @@ public class ExecSessionWebSocketHandler {
             Certificate controllerCert = loadControllerCert();
             if (controllerCert != null) {
                 sslContext = SSLContext.getInstance("TLS");
-                sslContext.init(null, TrustManagers.createTrustManager(controllerCert), new SecureRandom());
+                sslContext.init(null, TrustManagers.createWebSocketTrustManager(controllerCert), new SecureRandom());
             }
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Failed to initialize SSL context", e);
