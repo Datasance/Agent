@@ -180,7 +180,9 @@ jobs:
       with:
         files: |
           packaging/iofog-agent/iofog-agent_${{ steps.pkg_version.outputs.version }}_all.deb
+          packaging/iofog-agent/iofog-agent-podman_${{ steps.pkg_version.outputs.version }}_all.deb
           packaging/iofog-agent/iofog-agent-${{ steps.pkg_version.outputs.version }}-1.noarch.rpm
+          packaging/iofog-agent/iofog-agent-podman-${{ steps.pkg_version.outputs.version }}-1.noarch.rpm
 
     - uses: actions/checkout@v3
       with:
