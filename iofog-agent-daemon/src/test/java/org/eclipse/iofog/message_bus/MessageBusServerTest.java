@@ -100,7 +100,7 @@ public class MessageBusServerTest {
     @Test
     public void testStartServer() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             JmsConnectionFactory mock = jmsConnectionFactoryMockedConstruction.constructed().get(0);
             Mockito.verify(mock, Mockito.atLeastOnce()).createConnection();
             Mockito.verify(LoggingService.class, atLeastOnce());
@@ -118,7 +118,7 @@ public class MessageBusServerTest {
     @Test
     public void testInitialize() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             Mockito.verify(connection, Mockito.atLeastOnce()).createSession(false, Session.CLIENT_ACKNOWLEDGE);
             Mockito.verify(connection, Mockito.atLeastOnce()).start();
@@ -139,7 +139,7 @@ public class MessageBusServerTest {
     @Test
     public void testStopServerWhenNothingIsRunning() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             messageBusServer.stopServer();
             Mockito.verify(session, Mockito.atLeastOnce()).close();
@@ -159,7 +159,7 @@ public class MessageBusServerTest {
     @Test
     public void testStopServerWhenProducerAndConsumerAreRunning() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             messageBusServer.createConsumer("consumer1");
             messageBusServer.createConsumer("consumer2");
@@ -183,7 +183,7 @@ public class MessageBusServerTest {
         try {
             Mockito.doThrow(mock(JMSException.class)).when(messageProducer).close();
             Mockito.doThrow(mock(JMSException.class)).when(messageConsumer).close();
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             messageBusServer.createConsumer("consumer");
             messageBusServer.createProducer("producer", receivers);
@@ -205,7 +205,7 @@ public class MessageBusServerTest {
     @Test
     public void testCreateConsumerAndGetConsumer() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             messageBusServer.createConsumer("consumer");
             assertEquals(messageConsumer, messageBusServer.getConsumer("consumer"));
@@ -225,7 +225,7 @@ public class MessageBusServerTest {
     @Test
     public void testRemoveConsumerWhenConsumerIsPresent() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             messageBusServer.createConsumer("consumer");
             assertEquals(messageConsumer, messageBusServer.getConsumer("consumer"));
@@ -244,7 +244,7 @@ public class MessageBusServerTest {
     @Test
     public void testRemoveConsumerWhenConsumerIsNotPresent() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             messageBusServer.createConsumer("consumer");
             assertEquals(messageConsumer, messageBusServer.getConsumer("consumer"));
@@ -263,7 +263,7 @@ public class MessageBusServerTest {
     @Test
     public void testCreateProducerAndGetProducer() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             messageBusServer.createProducer("producer", receivers);
             Mockito.verify(messageBusServer).createProducer(anyString(), any());
@@ -280,7 +280,7 @@ public class MessageBusServerTest {
     @Test
     public void testRemoveProducerAndThenRemoveProducerTheSamePublisher() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             messageBusServer.createProducer("producer", receivers);
             Mockito.verify(messageBusServer).createProducer(anyString(), any());
@@ -297,7 +297,7 @@ public class MessageBusServerTest {
     @Test
     public void getSession() {
         try {
-            messageBusServer.startServer("localhost", 5671, caCert, tlsCert, tlsKey); 
+            messageBusServer.startServer("localhost", 5671, null, null, null); 
             messageBusServer.initialize();
             assertEquals(textMessage, MessageBusServer.createMessage(anyString()));
             Mockito.verify(session, atLeastOnce()).createTextMessage(anyString());

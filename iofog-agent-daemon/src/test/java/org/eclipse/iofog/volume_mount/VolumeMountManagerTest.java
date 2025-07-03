@@ -29,6 +29,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -232,7 +234,7 @@ public class VolumeMountManagerTest {
         assertDoesNotThrow(() -> volumeMountManager.processVolumeMountChanges(volumeMounts));
 
         // Verify error logging
-        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any());
+        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any(Throwable.class));
     }
 
     @Test
@@ -257,6 +259,6 @@ public class VolumeMountManagerTest {
         assertDoesNotThrow(() -> volumeMountManager.processVolumeMountChanges(volumeMounts));
 
         // Verify error logging
-        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any());
+        verify(LoggingService.class).logError(eq(MODULE_NAME), anyString(), any(Throwable.class));
     }
 } 
