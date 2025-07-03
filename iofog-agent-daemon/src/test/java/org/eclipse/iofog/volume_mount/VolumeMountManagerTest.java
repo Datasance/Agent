@@ -129,7 +129,8 @@ public class VolumeMountManagerTest {
         assertTrue(indexFile.exists(), "Index file should be created");
 
         // Verify status update
-        StatusReporter.setVolumeMountManagerStatus(1, anyLong());
+        verify(StatusReporter.class, times(2));
+        StatusReporter.setVolumeMountManagerStatus(1, System.currentTimeMillis());
     }
 
     @Test
@@ -187,7 +188,7 @@ public class VolumeMountManagerTest {
 
         // Verify status update
         verify(StatusReporter.class, times(2));
-        StatusReporter.setVolumeMountManagerStatus(1, anyLong());
+        StatusReporter.setVolumeMountManagerStatus(1, System.currentTimeMillis());
     }
 
     @Test
