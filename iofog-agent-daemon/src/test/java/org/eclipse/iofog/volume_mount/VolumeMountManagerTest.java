@@ -177,8 +177,12 @@ public class VolumeMountManagerTest {
         assertTrue(Files.exists(mountPath.resolve("file2.txt")), "New file should be created");
 
         // Verify content
-        String file1Content = new String(Files.readAllBytes(mountPath.resolve("file1.txt")));
-        assertEquals("updated content", file1Content, "File content should be updated");
+        try {
+            String file1Content = new String(Files.readAllBytes(mountPath.resolve("file1.txt")));
+            assertEquals("updated content", file1Content, "File content should be updated");
+        } catch (IOException e) {
+            fail("Failed to read file content: " + e.getMessage());
+        }
 
         // Verify status update
         verify(StatusReporter.class, times(2));
