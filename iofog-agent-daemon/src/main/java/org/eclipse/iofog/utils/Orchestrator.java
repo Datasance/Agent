@@ -148,33 +148,18 @@ public class Orchestrator {
     private void initialize(boolean secure) throws AgentSystemException {
     	logDebug(MODULE_NAME, "Start initialize TrustManager");
         if (secure) {
-            try {
-                SSLContext sslContext = SSLContext.getInstance("TLS");
-                sslContext.init(null, TrustManagers.createTrustManager(controllerCert), new SecureRandom());
-
-                SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(
-                    sslContext,
-                    new String[]{"TLSv1.2"},
-                    null,
-                    NoopHostnameVerifier.INSTANCE
-                );
-
-                client = HttpClients.custom()
-                    .setSSLSocketFactory(sslsf)
-                    .disableConnectionState()
-                    .setConnectionReuseStrategy((response, context) -> false)
-                    .disableCookieManagement()
-                    .build();
-
-            } catch (Exception e) {
-                throw new AgentSystemException(e.getMessage(), e);
-            }
+            SSLContext sslContext;
+			try {
+				sslContext = SSLContext.getInstance("TLS");
+				sslContext.init(null, TrustManagers.createTrustManager(controllerCert), new SecureRandom());
+				SSLConnectionSocketFactory sslsf = new SSLConnectionSocketFactory(sslContext);
+	            client = HttpClients.custom().setSSLSocketFactory(sslsf).build();
+			} catch (Exception e) {
+				throw new AgentSystemException(e.getMessage(), e );		
+			}
+            
         } else {
-            client = HttpClients.custom()
-                .disableConnectionState()
-                .setConnectionReuseStrategy((response, context) -> false)
-                .disableCookieManagement()
-                .build();
+            client = HttpClients.createDefault();
         }
         logDebug(MODULE_NAME, "Finished initialize TrustManager");
     }
@@ -380,7 +365,7 @@ public class Orchestrator {
 
         // Generate and add JWT token only for non-provisioning requests
         // Specifically exclude /agent/provision but include /agent/deprovision
-        if (!uri.toString().endsWith("/agent/provision")) {
+        if (!uri.toString().endsWith("/agent/provision") && !uri.toString().endsWith("/api/v3/status")) {
             String jwtToken = JwtManager.generateJwt();
             if (jwtToken == null) {
                 logError(MODULE_NAME, "Failed to generate JWT token", new AgentSystemException("Failed to generate JWT token"));

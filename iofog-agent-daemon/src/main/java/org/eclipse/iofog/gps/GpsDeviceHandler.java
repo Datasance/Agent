@@ -4,6 +4,7 @@ import org.eclipse.iofog.gps.nmea.NmeaMessage;
 import org.eclipse.iofog.gps.nmea.NmeaParser;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
+import org.eclipse.iofog.field_agent.FieldAgent;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -20,22 +21,16 @@ import java.util.concurrent.CompletableFuture;
  */
 public class GpsDeviceHandler {
     private static final String MODULE_NAME = "GPS Device Handler";
-    private static GpsDeviceHandler instance;
     private final ScheduledExecutorService scheduler;
     private ScheduledFuture<?> scheduledTask;
     private BufferedReader deviceReader;
     private boolean isRunning;
+    private final GpsManager gpsManager;
 
-    private GpsDeviceHandler() {
+    public GpsDeviceHandler(GpsManager gpsManager) {
+        this.gpsManager = gpsManager;
         this.scheduler = Executors.newSingleThreadScheduledExecutor();
         this.isRunning = false;
-    }
-
-    public static synchronized GpsDeviceHandler getInstance() {
-        if (instance == null) {
-            instance = new GpsDeviceHandler();
-        }
-        return instance;
     }
 
     /**
@@ -50,11 +45,15 @@ public class GpsDeviceHandler {
             String devicePath = Configuration.getGpsDevice();
             if (devicePath == null || devicePath.isEmpty()) {
                 LoggingService.logError(MODULE_NAME, "GPS device path not configured", new Exception("GPS device path not configured"));
+                gpsManager.getStatus().setHealthStatus(GpsStatus.GpsHealthStatus.DEVICE_ERROR);
                 return;
             }
 
             deviceReader = new BufferedReader(new FileReader(devicePath));
             isRunning = true;
+
+            // Update status
+            gpsManager.getStatus().setHealthStatus(GpsStatus.GpsHealthStatus.HEALTHY);
 
             // Schedule reading task based on configured frequency
             long scanFrequency = Configuration.getGpsScanFrequency();
@@ -68,6 +67,7 @@ public class GpsDeviceHandler {
             LoggingService.logInfo(MODULE_NAME, "Started GPS device handler");
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error starting GPS device handler: " + e.getMessage(), e);
+            gpsManager.getStatus().setHealthStatus(GpsStatus.GpsHealthStatus.DEVICE_ERROR);
             stop();
         }
     }
@@ -110,6 +110,7 @@ public class GpsDeviceHandler {
             String message = readLineWithTimeout(deviceReader, 5000);
             if (message == null) {
                 LoggingService.logWarning(MODULE_NAME, "GPS device timeout - no data received within 5 seconds, skipping this round");
+                gpsManager.getStatus().setHealthStatus(GpsStatus.GpsHealthStatus.DEVICE_ERROR);
                 return;
             }
 
@@ -119,11 +120,21 @@ public class GpsDeviceHandler {
                     nmeaMessage.getLatitude(),
                     nmeaMessage.getLongitude()
                 );
+                
+                // Update coordinates in configuration
                 Configuration.setGpsCoordinates(coordinates);
+                gpsManager.getStatus().setHealthStatus(GpsStatus.GpsHealthStatus.HEALTHY);
+                
+                // Trigger FieldAgent update
+                FieldAgent.getInstance().instanceConfigUpdated();
                 LoggingService.logDebug(MODULE_NAME, "Updated GPS coordinates: " + coordinates);
+            } else {
+                LoggingService.logWarning(MODULE_NAME, "Invalid NMEA message received");
+                gpsManager.getStatus().setHealthStatus(GpsStatus.GpsHealthStatus.DEVICE_ERROR);
             }
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error reading GPS coordinates: " + e.getMessage(), e);
+            gpsManager.getStatus().setHealthStatus(GpsStatus.GpsHealthStatus.DEVICE_ERROR);
         }
     }
 
@@ -154,5 +165,12 @@ public class GpsDeviceHandler {
             LoggingService.logError(MODULE_NAME, "Error in readLineWithTimeout: " + e.getMessage(), e);
             return null;
         }
+    }
+
+    /**
+     * Check if device handler is running
+     */
+    public boolean isRunning() {
+        return isRunning;
     }
 } 

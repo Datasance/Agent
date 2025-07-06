@@ -31,6 +31,7 @@ import org.eclipse.iofog.utils.Constants;
 import org.eclipse.iofog.utils.device_info.ArchitectureType;
 import org.eclipse.iofog.utils.functional.Pair;
 import org.eclipse.iofog.utils.logging.LoggingService;
+import org.eclipse.iofog.gps.GpsManager;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -50,6 +51,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.regex.Pattern;
@@ -780,11 +782,18 @@ public final class Configuration {
                         try {
                             if (value.toLowerCase().equals("dynamic")) {
                                 Configuration.setGpsMode(GpsMode.DYNAMIC);
-                                startGpsDeviceHandler();
                             } else {
                                 configureGps(value, gpsCoordinates);
                             }
                             writeGpsToConfigFile();
+                            // Notify GPS module of configuration change asynchronously
+                            CompletableFuture.runAsync(() -> {
+                                try {
+                                    GpsManager.getInstance().instanceConfigUpdated();
+                                } catch (Exception e) {
+                                    LoggingService.logError(MODULE_NAME, "Error updating GPS configuration", e);
+                                }
+                            });
                         } catch (ConfigurationItemException e){
                             messageMap.put(option, "Option -" + option + " has invalid value: " + value);
                             break;
@@ -986,16 +995,7 @@ public final class Configuration {
         LoggingService.logDebug(MODULE_NAME, "Finished configures GPS coordinates and mode in config file ");
     }
 
-    /**
-     * Starts the GPS device handler if in DYNAMIC mode and device is configured
-     * This should be called after system initialization is complete
-     */
-    public static void startGpsDeviceHandler() {
-        if (gpsMode == GpsMode.DYNAMIC && gpsDevice != null && !gpsDevice.isEmpty()) {
-            LoggingService.logInfo(MODULE_NAME, "Starting GPS device handler for DYNAMIC mode");
-            GpsDeviceHandler.getInstance().start();
-        }
-    }
+
 
     public static void setGpsDataIfValid(GpsMode mode, String gpsCoordinates) throws ConfigurationItemException {
     	LoggingService.logDebug(MODULE_NAME, "Start set Gps Data If Valid ");
@@ -1450,7 +1450,7 @@ public final class Configuration {
         result.append(buildReportLine(getConfigParamMessage(EDGE_GUARD_FREQUENCY), format("%d", edgeGuardFrequency)));
         // gps device
         result.append(buildReportLine(getConfigParamMessage(GPS_DEVICE), gpsDevice));
-        // gps scan frequency
+        // gps scan frequency (controller notification frequency)
         result.append(buildReportLine(getConfigParamMessage(GPS_SCAN_FREQUENCY), format("%d", gpsScanFrequency)));
         // gps mode
         result.append(buildReportLine(getConfigParamMessage(GPS_MODE), gpsMode.name().toLowerCase()));

@@ -26,6 +26,7 @@ import org.eclipse.iofog.status_reporter.StatusReporter;
 import org.eclipse.iofog.utils.Constants;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
+import org.eclipse.iofog.gps.GpsManager;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import static java.lang.System.currentTimeMillis;
@@ -94,6 +95,7 @@ public class Supervisor implements IOFogModule {
 		startModule(new ResourceManager());
         messageBus = MessageBus.getInstance();
         startModule(messageBus);
+        startModule(GpsManager.getInstance());
 
         localApi = LocalApi.getInstance();
         localApiThread = new Thread(localApi, Constants.LOCAL_API_EVENT);

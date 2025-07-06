@@ -31,6 +31,16 @@ public class JwtManager {
     private static Ed25519Signer signer;
     private static OctetKeyPair keyPair;
 
+    /**
+     * Resets the JWT Manager static state to allow re-initialization with new credentials
+     */
+    public static void reset() {
+        LoggingService.logDebug(MODULE_NAME, "Resetting JWT Manager static state");
+        signer = null;
+        keyPair = null;
+        LoggingService.logDebug(MODULE_NAME, "JWT Manager static state reset completed");
+    }
+
     public static String generateJwt() {
         try {
             // Get and validate private key

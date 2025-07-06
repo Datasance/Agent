@@ -40,6 +40,7 @@ import org.eclipse.iofog.utils.Orchestrator;
 import org.eclipse.iofog.utils.JwtManager;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.functional.Pair;
+import org.eclipse.iofog.gps.GpsManager;
 import org.eclipse.iofog.utils.logging.LoggingService;
 import org.eclipse.iofog.volume_mount.VolumeMountManager;
 import org.eclipse.iofog.process_manager.ExecSessionCallback;
@@ -178,6 +179,7 @@ public class FieldAgent implements IOFogModule {
                 .add("isReadyToRollback", StatusReporter.getFieldAgentStatus().isReadyToRollback())
                 .add("activeVolumeMounts", StatusReporter.getVolumeMountManagerStatus().getActiveMounts())
                 .add("volumeMountLastUpdate", StatusReporter.getVolumeMountManagerStatus().getLastUpdate())
+                .add("gpsStatus", GpsManager.getInstance().getStatus().getHealthStatus().name())
                 .build();
     }
 
@@ -1534,6 +1536,15 @@ public class FieldAgent implements IOFogModule {
             }
         }
 
+        // Reset JWT Manager to ensure clean state for new provisioning
+        try {
+            JwtManager.reset();
+            logDebug("JWT Manager reset for new provisioning");
+        } catch (Exception e) {
+            logWarning("Failed to reset JWT Manager before provisioning: " + e.getMessage());
+            // Continue with provisioning even if JWT reset fails
+        }
+
         try {
             // Try to acquire lock - if we can't get it, provisioning is already in progress
             if (!provisioningLock.tryLock()) {
@@ -1688,6 +1699,15 @@ public class FieldAgent implements IOFogModule {
                 Configuration.setPrivateKey("");
                 Configuration.saveConfigUpdates();
                 logDebug("Configuration cleared successfully");
+                
+                // Reset JWT Manager to clear static state and allow re-initialization with new credentials
+                try {
+                    JwtManager.reset();
+                    logDebug("JWT Manager reset completed");
+                } catch (Exception e) {
+                    logWarning("Failed to reset JWT Manager: " + e.getMessage());
+                    // Don't fail deprovisioning for JWT reset failure
+                }
             } catch (Exception e) {
                 configUpdated = false;
                 try {
@@ -1816,7 +1836,7 @@ public class FieldAgent implements IOFogModule {
         StatusReporter.setFieldAgentStatus().setReadyToUpgrade(VersionHandler.isReadyToUpgrade());
         StatusReporter.setFieldAgentStatus().setReadyToRollback(VersionHandler.isReadyToRollback());
         futureTask = scheduler.scheduleAtFixedRate(getAgentReadyToUpgradeStatus, 0, Configuration.getReadyToUpgradeScanFrequency(), TimeUnit.HOURS);
-        Configuration.startGpsDeviceHandler();
+        
         logDebug("Field Agent started");
     }
 

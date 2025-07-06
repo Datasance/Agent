@@ -83,6 +83,7 @@ RUN cat iofog-agent.txt iofog-agentd.txt iofog-agentvc.txt | \
 # Create a custom Java runtime
 RUN $JAVA_HOME/bin/jlink \
          --add-modules $(cat modules.txt) \
+         --add-modules jdk.crypto.ec \
          --strip-debug \
          --no-man-pages \
          --no-header-files \
