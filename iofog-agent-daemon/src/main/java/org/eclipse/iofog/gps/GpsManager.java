@@ -354,8 +354,10 @@ public class GpsManager implements IOFogModule {
     private void updateAutoCoordinates() {
         try {
             String coordinates = GpsWebHandler.getGpsCoordinatesByExternalIp();
-            if (coordinates != null && !coordinates.isEmpty() && (status.getHealthStatus() != GpsStatus.GpsHealthStatus.DEVICE_ERROR && Configuration.getGpsMode() != GpsMode.DYNAMIC)) {
-                status.setHealthStatus(GpsStatus.GpsHealthStatus.HEALTHY);
+            if (coordinates != null && !coordinates.isEmpty()) {
+                if (status.getHealthStatus() != GpsStatus.GpsHealthStatus.DEVICE_ERROR && Configuration.getGpsMode() != GpsMode.DYNAMIC) {
+                    status.setHealthStatus(GpsStatus.GpsHealthStatus.HEALTHY);
+                }
                 Configuration.setGpsCoordinates(coordinates);
                 LoggingService.logDebug(MODULE_NAME, "Updated coordinates from IP: " + coordinates);
             } else {
