@@ -76,7 +76,7 @@ public class VersionHandler {
 				UPDATE_PACKAGE_REPOSITORY = "yum update -y";
 				GET_PACKAGE_MANAGER_LOCK_FILE_CONTENT = "cat /var/run/yum.pid";
 			} else if (distrName.equalsIgnoreCase("container")) {
-				GET_IOFOG_PACKAGE_INSTALLED_VERSION = "iofog-agent version | grep -oP 'Agent \\K[0-9]+\\.[0-9]+\\.[0-9]+'";
+				GET_IOFOG_PACKAGE_INSTALLED_VERSION = "iofog-agent version | grep -oP 'Agent\\s+\\K[0-9]+(\\.[0-9]+){2,3}(?=\\s|$)'";
 				GET_IOFOG_PACKAGE_CANDIDATE_VERSION = "curl -s https://api.github.com/repos/Datasance/Agent/releases | grep '\"tag_name\":' | grep -v '\"latest\"' | awk -F '\"' '{print $4}' | awk '{print substr($0, 2)}' | head -n 1";
 			}else {
 				logWarning(MODULE_NAME, "it looks like your distribution is not supported");

@@ -825,9 +825,10 @@ public class DockerUtil {
             hostConfig.withDeviceRequests(Collections.singletonList(deviceRequest));
         }
 
-        // if (microservice.getAnnotations() != null && !microservice.getAnnotations().isEmpty()) {
-        //     hostConfig.withAnnotations(microservice.getAnnotations());
-        // }
+        if (microservice.getAnnotations() != null && !microservice.getAnnotations().isEmpty()) {
+            Map<String, String> annotationsMap = parseAnnotationsString(microservice.getAnnotations());
+            hostConfig.withAnnotations(annotationsMap);
+        }
 
         if (microservice.getCapAdd() != null && !microservice.getCapAdd().isEmpty()) {
             Capability[] capabilities = microservice.getCapAdd().stream()
@@ -1025,6 +1026,33 @@ public class DockerUtil {
         return null;
     }
 
+    /**
+     * Parses annotations JSON string in format "{\"key1\":\"value1\",\"key2\":\"value2\"}" into a Map
+     * @param annotationsString The annotations JSON string to parse
+     * @return Map<String, String> containing the parsed annotations
+     */
+    private Map<String, String> parseAnnotationsString(String annotationsString) {
+        Map<String, String> annotationsMap = new HashMap<>();
+        if (annotationsString == null || annotationsString.trim().isEmpty()) {
+            return annotationsMap;
+        }
+        
+        try {
+            // Parse the JSON string into a JsonObject
+            JsonObject jsonObject = Json.createReader(new java.io.StringReader(annotationsString)).readObject();
+            
+            // Convert JsonObject to Map<String, String>
+            for (String key : jsonObject.keySet()) {
+                String value = jsonObject.getString(key);
+                annotationsMap.put(key, value);
+            }
+        } catch (Exception e) {
+            LoggingService.logWarning(MODULE_NAME, 
+                "Error parsing annotations JSON string: " + annotationsString + ", error: " + e.getMessage());
+        }
+        
+        return annotationsMap;
+    }
     /**
      * Resolves volume mount paths that start with $VolumeMount prefix
      * @param hostDestination The host destination path from volume mapping
