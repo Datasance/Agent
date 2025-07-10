@@ -1,5 +1,15 @@
 #!/bin/bash
 
+if ! command -v docker &> /dev/null && ! command -v podman &> /dev/null; then
+    echo "================================================"
+    echo "WARNING: No container runtime detected!"
+    echo "Please install either:"
+    echo "  - docker-ce (Docker)"
+    echo "  - podman (Podman)"
+    echo "This package requires a container runtime to function."
+    echo "================================================"
+fi
+
 # killing old running processes
 for KILLPID in `ps ax | grep 'iofog-agentd' | awk ' { print $1;}'`; do
   kill -9 $KILLPID;

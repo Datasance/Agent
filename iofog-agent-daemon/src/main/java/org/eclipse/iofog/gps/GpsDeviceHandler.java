@@ -4,37 +4,30 @@ import org.eclipse.iofog.gps.nmea.NmeaMessage;
 import org.eclipse.iofog.gps.nmea.NmeaParser;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
-import org.eclipse.iofog.field_agent.FieldAgent;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Handles communication with GPS device and updates configuration with coordinates
  */
 public class GpsDeviceHandler {
     private static final String MODULE_NAME = "GPS Device Handler";
-    private final ScheduledExecutorService scheduler;
-    private ScheduledFuture<?> scheduledTask;
     private BufferedReader deviceReader;
     private boolean isRunning;
     private final GpsManager gpsManager;
 
     public GpsDeviceHandler(GpsManager gpsManager) {
         this.gpsManager = gpsManager;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
         this.isRunning = false;
     }
 
     /**
-     * Start reading from GPS device and updating coordinates
+     * Start reading from GPS device
      */
     public void start() {
         if (isRunning) {
@@ -55,15 +48,6 @@ public class GpsDeviceHandler {
             // Update status
             gpsManager.getStatus().setHealthStatus(GpsStatus.GpsHealthStatus.HEALTHY);
 
-            // Schedule reading task based on configured frequency
-            long scanFrequency = Configuration.getGpsScanFrequency();
-            scheduledTask = scheduler.scheduleAtFixedRate(
-                this::readAndUpdateCoordinates,
-                0,
-                scanFrequency,
-                TimeUnit.SECONDS
-            );
-
             LoggingService.logInfo(MODULE_NAME, "Started GPS device handler");
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error starting GPS device handler: " + e.getMessage(), e);
@@ -78,11 +62,6 @@ public class GpsDeviceHandler {
     public void stop() {
         if (!isRunning) {
             return;
-        }
-
-        if (scheduledTask != null) {
-            scheduledTask.cancel(true);
-            scheduledTask = null;
         }
 
         if (deviceReader != null) {
@@ -100,8 +79,9 @@ public class GpsDeviceHandler {
 
     /**
      * Read from GPS device and update coordinates if valid
+     * This method is called by GpsManager scheduler
      */
-    private void readAndUpdateCoordinates() {
+    public void readAndUpdateCoordinates() {
         if (!isRunning || deviceReader == null) {
             return;
         }
@@ -125,8 +105,7 @@ public class GpsDeviceHandler {
                 Configuration.setGpsCoordinates(coordinates);
                 gpsManager.getStatus().setHealthStatus(GpsStatus.GpsHealthStatus.HEALTHY);
                 
-                // Trigger FieldAgent update
-                FieldAgent.getInstance().instanceConfigUpdated();
+                // Note: FieldAgent update is handled by GpsManager
                 LoggingService.logDebug(MODULE_NAME, "Updated GPS coordinates: " + coordinates);
             } else {
                 LoggingService.logWarning(MODULE_NAME, "Invalid NMEA message received");

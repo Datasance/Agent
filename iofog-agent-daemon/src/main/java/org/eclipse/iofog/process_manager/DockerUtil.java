@@ -1068,7 +1068,8 @@ public class DockerUtil {
         String volumeName = hostDestination.substring("$VolumeMount/".length());
         
         // Check if agent is running in container
-        boolean isContainer = "container".equals(System.getenv("IOFOG_DAEMON").toLowerCase());
+        String iofogDaemon = System.getenv("IOFOG_DAEMON");
+        boolean isContainer = "container".equals(iofogDaemon != null ? iofogDaemon.toLowerCase() : null);
         
         if (!isContainer) {
             // Agent running on host - use disk directory directly

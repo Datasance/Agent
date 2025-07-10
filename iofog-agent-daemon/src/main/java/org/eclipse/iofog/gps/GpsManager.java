@@ -332,7 +332,8 @@ public class GpsManager implements IOFogModule {
     private void updateDynamicCoordinates() {
         try {
             if (deviceHandler != null && deviceHandler.isRunning()) {
-                // Device handler manages its own coordinate updates
+                // Delegate to device handler to read from GPS device
+                deviceHandler.readAndUpdateCoordinates();
                 status.setHealthStatus(GpsStatus.GpsHealthStatus.HEALTHY);
             } else {
                 // Device failed, fallback to AUTO
