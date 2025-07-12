@@ -1098,8 +1098,40 @@ public class FieldAgent implements IOFogModule {
             JsonValue extraHostsValue = jsonObj.get("extraHosts");
             microservice.setExtraHosts(getStringList(extraHostsValue));
 
-            microservice.setPidMode(jsonObj.getString("pidMode"));
-            microservice.setIpcMode(jsonObj.getString("ipcMode"));
+            if (!jsonObj.isNull("pidMode")) {
+                microservice.setPidMode(jsonObj.getString("pidMode"));
+            }
+            if (!jsonObj.isNull("ipcMode")) {
+                microservice.setIpcMode(jsonObj.getString("ipcMode"));
+            }
+            if (!jsonObj.isNull("cpuSetCpus")) {
+                microservice.setCpuSetCpus(jsonObj.getString("cpuSetCpus"));
+            }
+
+            JsonValue healthcheckValue = jsonObj.get("healthCheck");
+            if (healthcheckValue != null && !healthcheckValue.getValueType().equals(JsonValue.ValueType.NULL)) {
+                JsonObject healthcheckObj = (JsonObject) healthcheckValue;
+                JsonValue testValue = healthcheckObj.get("test");
+                List<String> testList = getStringList(testValue);
+                
+                // Handle null values for numeric fields
+                Long interval = healthcheckObj.containsKey("interval") && !healthcheckObj.isNull("interval") ? 
+                    healthcheckObj.getJsonNumber("interval").longValue() : null;
+                Long timeout = healthcheckObj.containsKey("timeout") && !healthcheckObj.isNull("timeout") ? 
+                    healthcheckObj.getJsonNumber("timeout").longValue() : null;
+                Long startPeriod = healthcheckObj.containsKey("startPeriod") && !healthcheckObj.isNull("startPeriod") ? 
+                    healthcheckObj.getJsonNumber("startPeriod").longValue() : null;
+                Long startInterval = healthcheckObj.containsKey("startInterval") && !healthcheckObj.isNull("startInterval") ? 
+                    healthcheckObj.getJsonNumber("startInterval").longValue() : null;
+                Integer retries = healthcheckObj.containsKey("retries") && !healthcheckObj.isNull("retries") ? 
+                    healthcheckObj.getInt("retries") : null;
+                
+                microservice.setHealthcheck(new Healthcheck(testList, interval, timeout, startPeriod, startInterval, retries));
+            }
+
+            if (jsonObj.containsKey("memoryLimit") && !jsonObj.isNull("memoryLimit")) {
+                microservice.setMemoryLimit(jsonObj.getJsonNumber("memoryLimit").longValue());
+            }
 
             try {
                 LoggingService.setupMicroserviceLogger(microservice.getMicroserviceUuid(), microservice.getLogSize());

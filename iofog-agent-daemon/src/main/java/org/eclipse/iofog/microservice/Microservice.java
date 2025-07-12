@@ -51,10 +51,13 @@ public class Microservice {
     private String ipcMode;
     private boolean execEnabled;
     private int schedule;
+    private String cpuSetCpus;
+    private Long memoryLimit;
 
     private boolean delete;
     private boolean deleteWithCleanup;
     private boolean isStuckInRestart;
+    private Healthcheck healthcheck;
 
     public Microservice(String microserviceUuid, String imageName) {
         this.microserviceUuid = microserviceUuid;
@@ -301,5 +304,38 @@ public class Microservice {
 
     public void setStuckInRestart(boolean stuckInRestart) {
         isStuckInRestart = stuckInRestart;
+    }
+
+    public String getCpuSetCpus() {
+        return cpuSetCpus;
+    }
+
+    public void setCpuSetCpus(String cpuSetCpus) {
+        this.cpuSetCpus = cpuSetCpus;
+    }
+
+    public Healthcheck getHealthcheck() {
+        return healthcheck;
+    }
+
+    public void setHealthcheck(Healthcheck healthcheck) {
+        this.healthcheck = healthcheck;
+    }
+
+    public Long getMemoryLimit() {
+        return memoryLimit;
+    }
+
+    /**
+     * Gets the memory limit in MB
+     * @return memory limit in MB, or null if not set
+     */
+    public Long getMemoryLimitMB() {
+        return memoryLimit != null ? memoryLimit / (1024 * 1024) : null;
+    }
+
+    public void setMemoryLimit(Long memoryLimitMB) {
+        // Convert MB to bytes (1 MB = 1024 * 1024 bytes)
+        this.memoryLimit = memoryLimitMB != null ? memoryLimitMB * 1024 * 1024 : null;
     }
 }

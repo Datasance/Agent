@@ -170,7 +170,7 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 COPY --from=jre-build /javaruntime $JAVA_HOME
 
 COPY --from=builder packaging/iofog-agent/usr ./usr
-COPY --from=builder packaging/iofog-agent/etc/init.d /etc/init.d/
+COPY --from=builder packaging/iofog-agent/etc/systemd/system/iofog-agent.service /etc/systemd/system/iofog-agent.service
 COPY --from=builder packaging/iofog-agent/etc/bash_completion.d /etc/bash_completion.d/
 COPY --from=builder packaging/iofog-agent/etc/iofog-agent /etc/iofog-agent/
 
@@ -197,7 +197,7 @@ RUN true && \
     chmod 774 -R /var/run/iofog-agent && \
     chmod 774 -R /var/backups/iofog-agent && \
     chmod 754 -R /usr/share/iofog-agent && \
-    chmod 774 /etc/init.d/iofog-agent && \
+    chmod 774 /etc/systemd/system/iofog-agent.service && \
     chmod 754 /usr/bin/iofog-agent && \
     chown :iofog-agent /usr/bin/iofog-agent && \
     true

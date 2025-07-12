@@ -64,7 +64,7 @@ public class VersionHandler {
 				GET_IOFOG_PACKAGE_DEV_VERSION = "(dnf --showduplicates list installed " + PACKAGE_NAME + "-dev && dnf --showduplicates list installed " + PACKAGE_NAME + ") | grep iofog | awk '{print $1}' | sed -e 's/iofog-agent\\(.*\\).noarch/\\1/')";
 				DEV = getIofogPackageDevVersion();
 				GET_IOFOG_PACKAGE_INSTALLED_VERSION = "dnf --showduplicates list installed " + PACKAGE_NAME + DEV + " | grep iofog | awk '{print $2}'";
-				GET_IOFOG_PACKAGE_CANDIDATE_VERSION = "dnf --showduplicates list " + PACKAGE_NAME + DEV + " | grep iofog | awk '{print $2}' | sed -n \\$p\\";
+				GET_IOFOG_PACKAGE_CANDIDATE_VERSION = "dnf --refresh list && dnf --showduplicates list " + PACKAGE_NAME + DEV + " | grep iofog | awk '{print $2}' | sed -n \\$p\\";
 				UPDATE_PACKAGE_REPOSITORY = "dnf update -y";
 				GET_PACKAGE_MANAGER_LOCK_FILE_CONTENT = "cat /var/cache/dnf/metadata_lock.pid";
 			} else if (distrName.contains("centos")
@@ -72,7 +72,7 @@ public class VersionHandler {
 				GET_IOFOG_PACKAGE_DEV_VERSION = "(yum --showduplicates list installed " + PACKAGE_NAME + "-dev && yum --showduplicates list installed " + PACKAGE_NAME + ") | grep iofog | awk '{print $1}' | sed -e 's/iofog-agent\\(.*\\).noarch/\\1/')";
 				DEV = getIofogPackageDevVersion();
 				GET_IOFOG_PACKAGE_INSTALLED_VERSION = "yum --showduplicates list installed | grep " + PACKAGE_NAME + DEV + " | awk '{print $2}'";
-				GET_IOFOG_PACKAGE_CANDIDATE_VERSION = "yum --showduplicates list | grep " + PACKAGE_NAME + DEV + "| awk '{print $2}' | sed -n \\$p\\";
+				GET_IOFOG_PACKAGE_CANDIDATE_VERSION = "yum --refresh list && yum --showduplicates list | grep " + PACKAGE_NAME + DEV + "| awk '{print $2}' | sed -n \\$p\\";
 				UPDATE_PACKAGE_REPOSITORY = "yum update -y";
 				GET_PACKAGE_MANAGER_LOCK_FILE_CONTENT = "cat /var/run/yum.pid";
 			} else if (distrName.equalsIgnoreCase("container")) {
@@ -203,9 +203,10 @@ public class VersionHandler {
 			LoggingService.logDebug(MODULE_NAME, "Checking if ready to upgrade");
 	
 			String ioFogDaemon = System.getenv("IOFOG_DAEMON");
+			boolean isContainer = "container".equals(ioFogDaemon != null ? ioFogDaemon.toLowerCase() : null);
 	
 			// If IOFOG_DAEMON is "container", only check if versions are not the same
-			if ("container".equalsIgnoreCase(ioFogDaemon)) {
+			if (isContainer) {
 				isReadyToUpgrade = areNotVersionsSame();
 			} else {
 				// If it's not "container", check all conditions

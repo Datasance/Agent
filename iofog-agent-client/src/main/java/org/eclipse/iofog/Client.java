@@ -262,7 +262,7 @@ public class Client {
         if (isAnotherInstanceRunning()) {
             switch (args[0]) {
                 case "stop":
-                    System.out.println("Enter \"service iofog-agent stop\"");
+                    System.out.println("Enter \"systemctl stop iofog-agent\"");
                     break;
                 case "start":
                     System.out.println("ioFog Agent is already running.");
@@ -285,7 +285,7 @@ public class Client {
                     System.out.println(version());
                     break;
                 case "start":
-                    System.out.println("Enter \"service iofog-agent start\"");
+                    System.out.println("Enter \"systemctl start iofog-agent\"");
                     break;
                 default:
                     System.out.println("ioFog Agent is not running.");

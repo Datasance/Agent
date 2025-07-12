@@ -21,6 +21,7 @@ import com.github.dockerjava.api.exception.NotModifiedException;
 import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.api.model.Frame;
 import com.github.dockerjava.api.model.Ports.Binding;
+import com.github.dockerjava.api.model.HealthCheck;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientBuilder;
 import com.github.dockerjava.core.DockerClientConfig;
@@ -395,6 +396,24 @@ public class DockerUtil {
                 MicroserviceStatus existingStatus = StatusReporter.setProcessManagerStatus().getMicroserviceStatus(microserviceUuid);
                 result.setPercentage(existingStatus.getPercentage());
                 result.setErrorMessage(existingStatus.getErrorMessage());
+
+                // Get health status if available (for all container states)
+                try {
+                    ContainerState state = inspectInfo.getState();
+                    LoggingService.logDebug(MODULE_NAME, "Container state: " + (state != null ? state.getStatus() : "null"));
+                    
+                    if (state != null && state.getHealth() != null) {
+                        String healthStatus = state.getHealth().getStatus();
+                        LoggingService.logDebug(MODULE_NAME, "Health status for container " + containerId + ": " + healthStatus);
+                        result.setHealthStatus(healthStatus);
+                    } else {
+                        LoggingService.logDebug(MODULE_NAME, "No health information available for container " + containerId);
+                        result.setHealthStatus(null);
+                    }
+                } catch (Exception e) {
+                    LoggingService.logWarning(MODULE_NAME, "Error getting health status for container " + containerId + ": " + e.getMessage());
+                    result.setHealthStatus("Error getting health status");
+                }
 
                 if (MicroserviceState.RUNNING.equals(result.getStatus())) {
                     try {
@@ -782,7 +801,15 @@ public class DockerUtil {
         HostConfig hostConfig = HostConfig.newHostConfig();
         hostConfig.withPortBindings(portBindings);
         hostConfig.withLogConfig(containerLog);
-        hostConfig.withCpusetCpus("0");
+        if (microservice.getCpuSetCpus() != null && !microservice.getCpuSetCpus().isEmpty()) {
+            hostConfig.withCpusetCpus(microservice.getCpuSetCpus());
+        }
+        
+        // Set memory limit if configured
+        if (microservice.getMemoryLimit() != null) {
+            hostConfig.withMemory(microservice.getMemoryLimit());
+        }
+        
         hostConfig.withRestartPolicy(restartPolicy);
 
         CreateContainerCmd cmd = dockerClient.createContainerCmd(microservice.getImageName())
@@ -793,6 +820,32 @@ public class DockerUtil {
 
         if (volumes.size() > 0) {
             cmd = cmd.withVolumes(volumes);
+        }
+        
+        // Add healthcheck if configured
+        if (microservice.getHealthcheck() != null) {
+            Healthcheck healthcheck = microservice.getHealthcheck();
+            HealthCheck healthCheck = new HealthCheck()
+                .withTest(healthcheck.getTest());
+            
+            // Only set parameters if they are not null, let Docker use defaults otherwise
+            if (healthcheck.getInterval() != null) {
+                healthCheck.withInterval(TimeUnit.SECONDS.toNanos(healthcheck.getInterval()));
+            }
+            if (healthcheck.getTimeout() != null) {
+                healthCheck.withTimeout(TimeUnit.SECONDS.toNanos(healthcheck.getTimeout()));
+            }
+            if (healthcheck.getStartPeriod() != null) {
+                healthCheck.withStartPeriod(TimeUnit.SECONDS.toNanos(healthcheck.getStartPeriod()));
+            }
+            if (healthcheck.getStartInterval() != null) {
+                healthCheck.withStartInterval(TimeUnit.SECONDS.toNanos(healthcheck.getStartInterval()));
+            }
+            if (healthcheck.getRetries() != null) {
+                healthCheck.withRetries(healthcheck.getRetries());
+            }
+            
+            cmd = cmd.withHealthcheck(healthCheck);
         }
 
         if (volumeMounts.size() > 0) {

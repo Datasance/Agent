@@ -41,6 +41,7 @@ public class MicroserviceStatus {
 	private String errorMessage;
 	private String ipAddress;
 	private List<String> execSessionIds;
+	private String healthStatus;
 
 	public String getErrorMessage() {
 		return errorMessage;
@@ -144,6 +145,14 @@ public class MicroserviceStatus {
 		if (this.execSessionIds != null) {
 			this.execSessionIds.remove(execSessionId);
 		}
+	}
+
+	public String getHealthStatus() {
+		return healthStatus;
+	}
+
+	public void setHealthStatus(String healthStatus) {
+		this.healthStatus = healthStatus;
 	}
 
 	/**
