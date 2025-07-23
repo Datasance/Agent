@@ -481,6 +481,12 @@ public final class Configuration {
         LoggingService.logInfo(MODULE_NAME, "Finished updating agent configurations");
     }
 
+    public static void saveGpsConfigUpdates() throws Exception {
+        LoggingService.logInfo(MODULE_NAME, "Start updating agent GPS configurations");
+        FieldAgent.getInstance().instanceConfigUpdated();
+        LoggingService.logInfo(MODULE_NAME, "Finished updating agent GPS configurations");
+    }
+
     public static void updateConfigBackUpFile() {
         try {
             updateConfigFile(getBackUpConfigPath(), configFile);

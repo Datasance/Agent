@@ -13,7 +13,6 @@
 package org.eclipse.iofog.gps;
 
 import org.eclipse.iofog.IOFogModule;
-import org.eclipse.iofog.field_agent.FieldAgent;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
 import org.eclipse.iofog.utils.Constants;
@@ -134,6 +133,8 @@ public class GpsManager implements IOFogModule {
                 startDynamicMode();
             } else if (currentMode == GpsMode.AUTO) {
                 startAutoMode();
+            } else if (currentMode == GpsMode.DYNAMIC && (gpsDevice == null || gpsDevice.isEmpty())) {
+                startManualMode();
             } else if (currentMode == GpsMode.MANUAL) {
                 startManualMode();
             } else if (currentMode == GpsMode.OFF) {
@@ -159,7 +160,7 @@ public class GpsManager implements IOFogModule {
     private void initializeAutoMode() {
         try {
             LoggingService.logDebug(MODULE_NAME, "Initializing GPS in AUTO mode");
-            
+
             status.setHealthStatus(GpsStatus.GpsHealthStatus.HEALTHY);
             
             // Get coordinates from IP service
@@ -169,11 +170,13 @@ public class GpsManager implements IOFogModule {
                 LoggingService.logDebug(MODULE_NAME, "Updated coordinates from IP: " + coordinates);
             } else {
                 status.setHealthStatus(GpsStatus.GpsHealthStatus.IP_ERROR);
-                LoggingService.logWarning(MODULE_NAME, "Failed to get coordinates from IP service");
+                LoggingService.logWarning(MODULE_NAME, "Failed to get coordinates from IP service, switching to OFF mode");
+                startOffMode();
             }
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error initializing AUTO mode", e);
             status.setHealthStatus(GpsStatus.GpsHealthStatus.IP_ERROR);
+            startOffMode();
         }
     }
 
@@ -198,11 +201,13 @@ public class GpsManager implements IOFogModule {
                 LoggingService.logDebug(MODULE_NAME, "Updated coordinates from IP: " + coordinates);
             } else {
                 status.setHealthStatus(GpsStatus.GpsHealthStatus.IP_ERROR);
-                LoggingService.logWarning(MODULE_NAME, "Failed to get coordinates from IP service");
+                LoggingService.logWarning(MODULE_NAME, "Failed to get coordinates from IP service, switching to OFF mode");
+                startOffMode();
             }
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error starting AUTO mode", e);
             status.setHealthStatus(GpsStatus.GpsHealthStatus.IP_ERROR);
+            startOffMode();
         }
     }
 
@@ -320,7 +325,7 @@ public class GpsManager implements IOFogModule {
             }
             
             // Trigger FieldAgent update
-            FieldAgent.getInstance().instanceConfigUpdated();
+            Configuration.saveGpsConfigUpdates();
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error updating coordinates", e);
         }

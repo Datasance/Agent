@@ -93,7 +93,7 @@ public class CommandLineActionTest {
                 .thenReturn(new HashMap<>())
                 .thenThrow(new Exception("item not found or defined more than once"));
 
-        Mockito.when(CmdProperties.getVersion()).thenReturn("3.5.0.3");
+        Mockito.when(CmdProperties.getVersion()).thenReturn("3.5.1");
         Mockito.when(CmdProperties.getVersionMessage()).thenReturn(version);
         Mockito.when(CmdProperties.getDeprovisionMessage()).thenReturn("Deprovisioning from controller ... %s");
         Mockito.when(CmdProperties.getProvisionMessage()).thenReturn("Provisioning with key \"%s\" ... Result: %s");
@@ -364,7 +364,7 @@ public class CommandLineActionTest {
             "0.00 MB\\nSystem Available Memory     : " +
             "0.00 MB\\nSystem Total CPU            : 0.00 %";
 
-    private String version = "ioFog Agent 3.5.0.3 \n" +
+    private String version = "ioFog Agent 3.5.1 \n" +
             "Copyright (c) 2023 Datasance Teknoloji A.S. \n" +
             "Eclipse ioFog is provided under the Eclipse Public License 2.0 (EPL-2.0) \n" +
             "https://www.eclipse.org/legal/epl-v20.html";
