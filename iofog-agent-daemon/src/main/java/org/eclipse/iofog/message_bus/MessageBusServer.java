@@ -16,6 +16,8 @@ import org.apache.qpid.jms.JmsConnectionFactory;
 import org.eclipse.iofog.exception.AgentSystemException;
 import org.eclipse.iofog.microservice.Microservice;
 import org.eclipse.iofog.utils.logging.LoggingService;
+// import org.eclipse.iofog.utils.configuration.Configuration;
+import org.eclipse.iofog.utils.trustmanager.TrustManagers;
 
 import jakarta.jms.*;
 import jakarta.jms.IllegalStateException;
@@ -23,6 +25,28 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Base64;
+import java.io.IOException;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.KeyManager;
+import javax.net.ssl.KeyManagerFactory;
+import java.security.SecureRandom;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
+import java.io.ByteArrayInputStream;
+import java.security.PrivateKey;
+import java.security.KeyFactory;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.InvalidKeyException;
+import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
+import org.bouncycastle.asn1.pkcs.RSAPrivateKey;
+import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
+import java.nio.charset.StandardCharsets;
+import java.io.StringReader;
+import org.bouncycastle.openssl.PEMParser;
+import org.bouncycastle.openssl.PEMKeyPair;
 
 /**
  * ActiveMQ server
@@ -61,13 +85,73 @@ public class MessageBusServer {
     }
 
     /**
-     * starts ActiveMQ server
+     * Starts ActiveMQ server
      *
+     * @param routerHost - host of router
+     * @param routerPort - port of router
+     * @param caCert - CA certificate in PEM format
+     * @param tlsCert - TLS certificate in PEM format
+     * @param tlsKey - TLS private key in PEM format
      * @throws Exception
      */
-    void startServer(String routerHost, int routerPort) throws Exception {
+    void startServer(String routerHost, int routerPort, String caCert, String tlsCert, String tlsKey) throws Exception {
         LoggingService.logDebug(MODULE_NAME, "Starting server");
-        JmsConnectionFactory connectionFactory = new JmsConnectionFactory(String.format("amqp://%s:%d", routerHost, routerPort));
+        
+        // Create SSL context using TrustManagers with CA certificate
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        TrustManager[] trustManagers = null;
+        
+        if (caCert != null && !caCert.trim().isEmpty()) {
+            try {
+                trustManagers = TrustManagers.createRouterTrustManager(
+                    CertificateFactory.getInstance("X.509").generateCertificate(
+                        new ByteArrayInputStream(Base64.getDecoder().decode(caCert))));
+            } catch (Exception e) {
+                LoggingService.logWarning(MODULE_NAME, "Failed to parse CA certificate: " + e.getMessage());
+                throw new AgentSystemException("Could not parse CA certificate", e);
+            }
+        }
+        
+        // Create keystore for client certificates if available
+        KeyManager[] keyManagers = null;
+        if (tlsCert != null && !tlsCert.trim().isEmpty() && 
+            tlsKey != null && !tlsKey.trim().isEmpty()) {
+            try {
+                KeyStore keyStore = KeyStore.getInstance("PKCS12");
+                keyStore.load(null, null);
+                
+                // Parse the certificate
+                Certificate cert = CertificateFactory.getInstance("X.509")
+                    .generateCertificate(new ByteArrayInputStream(Base64.getDecoder().decode(tlsCert)));
+                
+                // Parse the private key
+                PrivateKey privateKey;
+                try {
+                    privateKey = getPrivateKeyFromBase64Pem(tlsKey);
+                } catch (Exception e) {
+                    LoggingService.logWarning(MODULE_NAME, "Failed to parse private key: " + e.getMessage());
+                    throw new AgentSystemException("Could not parse private key", e);
+                }
+                
+                // Add the certificate and private key to the keystore
+                keyStore.setKeyEntry("client", privateKey, "".toCharArray(), new Certificate[]{cert});
+                
+                KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+                kmf.init(keyStore, "".toCharArray());
+                keyManagers = kmf.getKeyManagers();
+            } catch (Exception e) {
+                LoggingService.logWarning(MODULE_NAME, "Failed to parse client certificates: " + e.getMessage());
+                throw new AgentSystemException("Could not parse client certificates", e);
+            }
+        }
+        
+        // Initialize SSL context with available managers
+        sslContext.init(keyManagers, trustManagers, new SecureRandom());
+        
+        // Configure connection factory with SSL
+        JmsConnectionFactory connectionFactory = new JmsConnectionFactory(String.format("amqps://%s:%d", routerHost, routerPort));
+        connectionFactory.setSslContext(sslContext);
+        
         connection = connectionFactory.createConnection();
         LoggingService.logDebug(MODULE_NAME, "Finished starting server");
     }
@@ -265,6 +349,26 @@ public class MessageBusServer {
     public void setConnected(boolean connected) {
         synchronized (messageBusSessionLock) {
             isConnected = connected;
+        }
+    }
+
+    private static PrivateKey getPrivateKeyFromBase64Pem(String base64Pem) throws Exception {
+        // Decode the base64 string to get the PEM text
+        byte[] pemBytes = Base64.getDecoder().decode(base64Pem);
+        String pem = new String(pemBytes, StandardCharsets.UTF_8);
+
+        // Parse the PEM
+        try (PEMParser pemParser = new PEMParser(new StringReader(pem))) {
+            Object object = pemParser.readObject();
+            JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
+
+            if (object instanceof PEMKeyPair) {
+                return converter.getPrivateKey(((PEMKeyPair) object).getPrivateKeyInfo());
+            } else if (object instanceof PrivateKeyInfo) {
+                return converter.getPrivateKey((PrivateKeyInfo) object);
+            } else {
+                throw new IllegalArgumentException("Unsupported PEM object: " + object.getClass().getName());
+            }
         }
     }
 }

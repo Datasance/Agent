@@ -120,6 +120,9 @@ public class CommandLineConfigParamTest {
         assertEquals("deviceScanFrequency", commandLineConfigParam.DEVICE_SCAN_FREQUENCY.getJsonProperty());
         assertEquals("watchdogEnabled", commandLineConfigParam.WATCHDOG_ENABLED.getJsonProperty());
         assertEquals("gpsMode", commandLineConfigParam.GPS_MODE.getJsonProperty());
+        assertEquals("gpsDevice", commandLineConfigParam.GPS_DEVICE.getJsonProperty());
+        assertEquals("gpsScanFrequency", commandLineConfigParam.GPS_SCAN_FREQUENCY.getJsonProperty());
+        assertEquals("edgeGuardFrequency", commandLineConfigParam.EDGE_GUARD_FREQUENCY.getJsonProperty());
         assertEquals("gpscoordinates", commandLineConfigParam.GPS_COORDINATES.getJsonProperty());
         assertEquals("postdiagnosticsfreq", commandLineConfigParam.POST_DIAGNOSTICS_FREQ.getJsonProperty());
         assertEquals("", commandLineConfigParam.FOG_TYPE.getJsonProperty());
@@ -150,6 +153,9 @@ public class CommandLineConfigParamTest {
         assertEquals("60", commandLineConfigParam.DEVICE_SCAN_FREQUENCY.getDefaultValue());
         assertEquals("off", commandLineConfigParam.WATCHDOG_ENABLED.getDefaultValue());
         assertEquals("auto", commandLineConfigParam.GPS_MODE.getDefaultValue());
+        assertEquals("/dev/ttyUSB0", commandLineConfigParam.GPS_DEVICE.getDefaultValue());
+        assertEquals("60", commandLineConfigParam.GPS_SCAN_FREQUENCY.getDefaultValue());
+        assertEquals("0", commandLineConfigParam.EDGE_GUARD_FREQUENCY.getDefaultValue());
         assertEquals("", commandLineConfigParam.GPS_COORDINATES.getDefaultValue());
         assertEquals("10", commandLineConfigParam.POST_DIAGNOSTICS_FREQ.getDefaultValue());
         assertEquals("auto", commandLineConfigParam.FOG_TYPE.getDefaultValue());
@@ -181,6 +187,9 @@ public class CommandLineConfigParamTest {
         assertEquals("-sd", commandLineConfigParam.DEVICE_SCAN_FREQUENCY.getCmdText());
         assertEquals("-idc", commandLineConfigParam.WATCHDOG_ENABLED.getCmdText());
         assertEquals("-gps", commandLineConfigParam.GPS_MODE.getCmdText());
+        assertEquals("-gpsd", commandLineConfigParam.GPS_DEVICE.getCmdText());
+        assertEquals("-gpsf", commandLineConfigParam.GPS_SCAN_FREQUENCY.getCmdText());
+        assertEquals("-egf", commandLineConfigParam.EDGE_GUARD_FREQUENCY.getCmdText());
         assertEquals("-", commandLineConfigParam.GPS_COORDINATES.getCmdText());
         assertEquals("-df", commandLineConfigParam.POST_DIAGNOSTICS_FREQ.getCmdText());
         assertEquals("-ft", commandLineConfigParam.FOG_TYPE.getCmdText());

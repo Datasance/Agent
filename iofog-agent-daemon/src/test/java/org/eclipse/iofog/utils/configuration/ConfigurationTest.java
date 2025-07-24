@@ -151,6 +151,7 @@ public class ConfigurationTest {
             assertEquals(60,  Configuration.getSetSystemTimeFreqSeconds());
             assertEquals("/etc/iofog-agent/cert.crt", Configuration.getControllerCert());
             assertEquals("http://localhost:54421/api/v3/",Configuration.getControllerUrl());
+            assertEquals("ws://localhost:54421/api/v3/",Configuration.getControllerWSUrl());
             assertEquals("unix:///var/run/docker.sock", Configuration.getDockerUrl());
             assertEquals("/var/lib/iofog-agent/", Configuration.getDiskDirectory());
             assertEquals(10, Configuration.getDiskLimit(), 0);
@@ -211,9 +212,12 @@ public class ConfigurationTest {
             assertEquals("", Configuration.getIofogUuid());
             Configuration.setIofogUuid("uuid");
             assertEquals( "uuid", Configuration.getIofogUuid());
-            assertEquals("", Configuration.getAccessToken());
-            Configuration.setAccessToken("token");
-            assertEquals( "token", Configuration.getAccessToken());
+            // assertEquals("", Configuration.getAccessToken());
+            // Configuration.setAccessToken("token");
+            // assertEquals( "token", Configuration.getAccessToken());
+            assertEquals("", Configuration.getPrivateKey());
+            Configuration.setPrivateKey("privateKey");
+            assertEquals( "privateKey", Configuration.getPrivateKey());
             Assertions.assertFalse(Configuration.isDevMode());
             Configuration.setDevMode(true);
             Assertions.assertTrue(Configuration.isDevMode());

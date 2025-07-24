@@ -31,6 +31,7 @@ public enum CommandLineConfigParam {
 
     ACCESS_TOKEN("", "", "access_token", ""),
     IOFOG_UUID("", "", "iofog_uuid", ""),
+    PRIVATE_KEY("", "", "private_key", "privateKey"),
 
     DISK_CONSUMPTION_LIMIT ("10", "d","disk_consumption_limit", "diskLimit"),
     DISK_DIRECTORY ("/var/lib/iofog-agent/", "dl","disk_directory", "diskDirectory"),
@@ -48,7 +49,10 @@ public enum CommandLineConfigParam {
     CHANGE_FREQUENCY("20", "cf", "get_changes_freq", "changeFrequency"),
     DEVICE_SCAN_FREQUENCY("60", "sd", "scan_devices_freq", "deviceScanFrequency"),
     WATCHDOG_ENABLED("off", "idc", "isolated_docker_container", "watchdogEnabled"),
+    EDGE_GUARD_FREQUENCY("0", "egf", "edge_guard_freq", "edgeGuardFrequency"),
     GPS_MODE (GpsMode.AUTO.name().toLowerCase(), "gps", "gps", "gpsMode"),
+    GPS_DEVICE ("/dev/ttyUSB0", "gpsd", "gps_device", "gpsDevice"),
+    GPS_SCAN_FREQUENCY("60", "gpsf", "gps_scan_freq", "gpsScanFrequency"),
     GPS_COORDINATES ("", "", "gps_coordinates", "gpscoordinates"),
     POST_DIAGNOSTICS_FREQ ("10", "df", "post_diagnostics_freq", "postdiagnosticsfreq"),
     FOG_TYPE ("auto", "ft", "fog_type", ""),
@@ -59,7 +63,11 @@ public enum CommandLineConfigParam {
     AVAILABLE_DISK_THRESHOLD ("20", "dt", "available_disk_threshold", "availableDiskThreshold"),
     READY_TO_UPGRADE_SCAN_FREQUENCY ("24", "uf", "upgrade_scan_frequency", "readyToUpgradeScanFrequency"),
     DEV_MODE ("off", "dev", "dev_mode", ""),
-    TIME_ZONE("", "tz", "time_zone", "timeZone");
+    TIME_ZONE("", "tz", "time_zone", "timeZone"),
+    CA_CERT("", "", "ca_cert", "caCert"),
+    TLS_CERT("", "", "tls_cert", "tlsCert"),
+    TLS_KEY("", "", "tls_key", "tlsKey"),
+    HW_SIGNATURE("", "", "hw_signature", "hwSignature");
 
     private final String commandName;
     private final String xmlTag;

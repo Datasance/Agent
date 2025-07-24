@@ -19,6 +19,7 @@ on:
 env:
   PROJECT: 'datasance-pot'
   IMAGE_NAME: 'agent'
+  DEBUGGER_IMAGE_NAME: 'node-debugger'
   POTCTL_VERSION: '1.3.4'
   CONTROLLER_IMAGE: 'ghcr.io/datasance/controller:latest'
 
@@ -96,6 +97,19 @@ jobs:
           ghcr.io/datasance/${{ env.IMAGE_NAME }}:latest
           ghcr.io/datasance/${{ env.IMAGE_NAME }}:main
 
+    - name: Build and Push Debugger to ghcr
+      
+      uses: docker/build-push-action@v3
+      id: build_push_ghcr_debugger
+      with:
+        file: Dockerfile-debugger
+        platforms: linux/amd64, linux/arm64 
+        push: true
+        tags: |
+          ghcr.io/datasance/${{ env.DEBUGGER_IMAGE_NAME }}:${{ steps.tags.outputs.VERSION }}
+          ghcr.io/datasance/${{ env.DEBUGGER_IMAGE_NAME }}:latest
+          ghcr.io/datasance/${{ env.DEBUGGER_IMAGE_NAME }}:main
+
     - name: Set up Ruby 3.1.4
       uses: ruby/setup-ruby@v1
       with:
@@ -122,17 +136,36 @@ jobs:
       id: create_deb_package
       run: |
         cd packaging/iofog-agent
-        fpm -s dir -d 'openjdk-8-jdk | openjdk-11-jdk | openjdk-17-jdk' -d docker-ce  -t deb -n iofog-agent -v ${{ steps.pkg_version.outputs.version }} -a all --deb-no-default-config-files --after-install debian.sh --after-remove remove.sh --before-upgrade upgrade.sh --after-upgrade debian.sh etc usr
+        fpm -s dir -d 'openjdk-8-jdk | openjdk-11-jdk | openjdk-17-jdk' -d 'docker-ce | podman'  -t deb -n iofog-agent -v ${{ steps.pkg_version.outputs.version }} -a all --deb-no-default-config-files --after-install debian.sh --after-remove remove.sh --before-upgrade upgrade.sh --after-upgrade debian.sh etc usr
         echo "pkg created"
         ls
-    - name: Create rpm package
+
+    # - name: Create deb package for podman
+    #   shell: bash
+    #   id: create_deb_package_podman
+    #   run: |
+    #     cd packaging/iofog-agent
+    #     fpm -s dir -d 'openjdk-8-jdk | openjdk-11-jdk | openjdk-17-jdk' -d 'podman'  -t deb -n iofog-agent-podman -v ${{ steps.pkg_version.outputs.version }} -a all --deb-no-default-config-files --after-install debian.sh --after-remove remove.sh --before-upgrade upgrade.sh --after-upgrade debian.sh etc usr
+    #     echo "pkg created"
+    #     ls
+
+    - name: Create rpm package 
       shell: bash
       id: create_rpm_package
       run: |
         cd packaging/iofog-agent
-        fpm -s dir --depends java-17-openjdk -d docker-ce -t rpm -n iofog-agent -v ${{ steps.pkg_version.outputs.version }} -a all --rpm-os 'linux' --after-install rpm.sh --after-remove remove.sh --before-upgrade upgrade.sh --after-upgrade rpm.sh etc usr;
+        fpm -s dir --depends java-17-openjdk -t rpm -n iofog-agent -v ${{ steps.pkg_version.outputs.version }} -a all --rpm-os 'linux' --after-install rpm.sh --after-remove remove.sh --before-upgrade upgrade.sh --after-upgrade rpm.sh etc usr;
         echo "pkg created"
         ls
+
+    # - name: Create rpm package for podman 
+    #   shell: bash
+    #   id: create_rpm_package_podman
+    #   run: |
+    #     cd packaging/iofog-agent
+    #     fpm -s dir --depends java-17-openjdk -d 'podman' -t rpm -n iofog-agent-podman -v ${{ steps.pkg_version.outputs.version }} -a all --rpm-os 'linux' --after-install rpm.sh --after-remove remove.sh --before-upgrade upgrade.sh --after-upgrade rpm.sh etc usr;
+    #     echo "pkg created"
+    #     ls
 
     - uses: bluwy/substitute-string-action@v1
       id: sub
@@ -147,7 +180,9 @@ jobs:
       with:
         files: |
           packaging/iofog-agent/iofog-agent_${{ steps.pkg_version.outputs.version }}_all.deb
+          packaging/iofog-agent/iofog-agent-podman_${{ steps.pkg_version.outputs.version }}_all.deb
           packaging/iofog-agent/iofog-agent-${{ steps.pkg_version.outputs.version }}-1.noarch.rpm
+          packaging/iofog-agent/iofog-agent-podman-${{ steps.pkg_version.outputs.version }}-1.noarch.rpm
 
     - uses: actions/checkout@v3
       with:

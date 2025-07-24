@@ -18,6 +18,7 @@ import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.*;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.entity.mime.Header;
@@ -26,6 +27,7 @@ import org.apache.http.entity.mime.MultipartEntityBuilder;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicHeader;
+import org.apache.http.util.EntityUtils;
 import org.eclipse.iofog.exception.AgentSystemException;
 import org.eclipse.iofog.exception.AgentUserException;
 import org.eclipse.iofog.field_agent.FieldAgent;
@@ -34,6 +36,7 @@ import org.eclipse.iofog.network.IOFogNetworkInterfaceManager;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.logging.LoggingService;
 import org.eclipse.iofog.utils.trustmanager.TrustManagers;
+import org.eclipse.iofog.utils.JwtManager;
 
 import jakarta.json.Json;
 import jakarta.json.JsonException;
@@ -49,6 +52,9 @@ import javax.ws.rs.ForbiddenException;
 import javax.ws.rs.InternalServerErrorException;
 import javax.ws.rs.NotFoundException;
 import javax.ws.rs.ServerErrorException;
+import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLException;
+import java.util.Base64;
 
 import java.io.*;
 import java.net.MalformedURLException;
@@ -72,7 +78,8 @@ public class Orchestrator {
     private static final int CONNECTION_TIMEOUT = 10000;
     private String controllerUrl;
     private String iofogUuid;
-    private String iofogAccessToken;
+    // private String iofogAccessToken;
+    private String iofogPrivateKey;
     private Certificate controllerCert;
     private CloseableHttpClient client;
 
@@ -239,6 +246,41 @@ public class Orchestrator {
         			new AgentUserException(e.getMessage(), e));
     		throw new AgentUserException(e.getMessage(), e );
     		
+    	} catch (CertificateException e) {
+            // Only renew for actual certificate validation failures
+            logWarning(MODULE_NAME, "Certificate validation failed, attempting to renew certificate");
+            try {
+                // First, initialize with insecure SSL context to get the new certificate
+                initialize(false);
+                
+                // Get new certificate from controller
+                String base64Cert = getControllerCert();
+                
+                // Save the new certificate
+                try (FileOutputStream fos = new FileOutputStream(Configuration.getControllerCert())) {
+                    byte[] certBytes = Base64.getDecoder().decode(base64Cert);
+                    fos.write(certBytes);
+                }
+                
+                // Update SSL context with the new certificate
+                update();
+                
+                // Ensure secure mode is enabled after successful renewal
+                Configuration.setSecureMode(true);
+                
+                // Retry the original request
+                logInfo(MODULE_NAME, "Certificate renewed successfully, retrying request");
+                return getJSON(surl);
+            } catch (Exception ex) {
+                logError(MODULE_NAME, "Failed to update certificate", ex);
+                throw new AgentUserException("Failed to update certificate: " + ex.getMessage(), ex);
+            }
+    		
+    	} catch (SSLHandshakeException e) {
+            // Handle SSL handshake failures separately (not certificate issues)
+            logError(MODULE_NAME, "SSL handshake failed", e);
+            throw new AgentUserException("SSL handshake failed: " + e.getMessage(), e);
+    		
     	} catch (IOException e) {
             try {
                 IOFogNetworkInterfaceManager.getInstance().updateIOFogNetworkInterface();
@@ -321,9 +363,15 @@ public class Orchestrator {
 
         req.setConfig(config);
 
-        String token = Configuration.getAccessToken();
-        if (!StringUtils.isEmpty(token)) {
-            req.addHeader(new BasicHeader("Authorization", token));
+        // Generate and add JWT token only for non-provisioning requests
+        // Specifically exclude /agent/provision but include /agent/deprovision
+        if (!uri.toString().endsWith("/agent/provision") && !uri.toString().endsWith("/api/v3/status")) {
+            String jwtToken = JwtManager.generateJwt();
+            if (jwtToken == null) {
+                logError(MODULE_NAME, "Failed to generate JWT token", new AgentSystemException("Failed to generate JWT token"));
+                throw new AuthenticationException("Failed to generate JWT token");
+            }
+            req.addHeader(new BasicHeader("Authorization", "Bearer " + jwtToken));
         }
 
         UUID requestId = UUID.randomUUID();
@@ -350,8 +398,8 @@ public class Orchestrator {
                 case 400:
                     throw new BadRequestException(errorMessage);
                 case 401:
-                    logWarning(MODULE_NAME, "Invalid authentication ioFog token, switching controller status to Not provisioned");
-//                    FieldAgent.getInstance().deProvision(true);
+                    FieldAgent.getInstance().deProvision(true);
+                    logWarning(MODULE_NAME, "Invalid JWT token, switching controller status to Not provisioned");
                     throw new AuthenticationException(errorMessage);
                 case 403:
                     throw new ForbiddenException(errorMessage);
@@ -402,7 +450,8 @@ public class Orchestrator {
     public void update() {
     	logDebug(MODULE_NAME, "Start updates local variables when changes applied");
         iofogUuid = Configuration.getIofogUuid();
-        iofogAccessToken = Configuration.getAccessToken();
+        // iofogAccessToken = Configuration.getAccessToken();
+        iofogPrivateKey = Configuration.getPrivateKey();
         controllerUrl = Configuration.getControllerUrl();
         // disable certificates for secure mode
         boolean secure = true;
@@ -426,5 +475,63 @@ public class Orchestrator {
             		new AgentUserException(exp.getMessage(), exp));
         }
         logDebug(MODULE_NAME, "Finished updates local variables when changes applied");
+    }
+
+    /**
+     * Gets the controller's certificate using an insecure connection
+     * This is used when the current certificate is invalid and we need to get a new one
+     * 
+     * @return base64 encoded certificate string
+     * @throws AgentSystemException if the request fails
+     */
+    public String getControllerCert() throws Exception {
+        String response = null;
+        try {
+            StringBuilder uri = createUri("cert");
+            HttpGet request = new HttpGet(uri.toString());
+            request.setHeader("Content-Type", "application/json");
+            request.setHeader("Authorization", "Bearer " + JwtManager.generateJwt());
+
+            CloseableHttpClient httpClient = HttpClients.custom()
+                .setSSLSocketFactory(TrustManagers.getInsecureSocketFactory())
+                .disableConnectionState()
+                .setConnectionReuseStrategy((resp, context) -> false)
+                .disableCookieManagement()
+                .build();
+
+            try (CloseableHttpResponse httpResponse = httpClient.execute(request)) {
+                int statusCode = httpResponse.getStatusLine().getStatusCode();
+                switch (statusCode) {
+                    case 200:
+                        response = EntityUtils.toString(httpResponse.getEntity());
+                        if (response == null || response.isEmpty()) {
+                            throw new AgentSystemException("Empty response from controller");
+                        }
+                        return response;
+                    case 401:
+                        FieldAgent.getInstance().deProvision(true);
+                        logWarning(MODULE_NAME, "Invalid JWT token, switching controller status to Not provisioned");
+                        throw new AuthenticationException("Unauthorized access to controller certificate");
+                    case 404:
+                        throw new AgentSystemException("Controller not found", new UnknownHostException());
+                    case 400:
+                        throw new BadRequestException("Invalid request for controller certificate");
+                    case 403:
+                        throw new ForbiddenException("Access forbidden to controller certificate");
+                    case 500:
+                        throw new InternalServerErrorException("Internal server error while getting controller certificate");
+                    default:
+                        if (statusCode >= 400 && statusCode < 500) {
+                            throw new ClientErrorException(httpResponse.getStatusLine().getReasonPhrase(), statusCode);
+                        } else if (statusCode >= 500 && statusCode < 600) {
+                            throw new ServerErrorException(httpResponse.getStatusLine().getReasonPhrase(), statusCode);
+                        }
+                        throw new AgentSystemException("Unexpected status code while getting controller certificate: " + statusCode);
+                }
+            }
+        } catch (Exception e) {
+            logError(MODULE_NAME, "Error getting controller certificate", e);
+            throw e;
+        }
     }
 }

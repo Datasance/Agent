@@ -24,7 +24,7 @@ import java.io.PrintStream;
 public class Constants {
 
     public enum ModulesStatus {
-        STARTING, RUNNING, STOPPED
+        STARTING, RUNNING, STOPPED, WARNING
     }
 
     public enum DockerStatus {
@@ -67,7 +67,7 @@ public class Constants {
         }
     }
 
-    public static final int NUMBER_OF_MODULES = 8;
+    public static final int NUMBER_OF_MODULES = 9;
 
     public static final int RESOURCE_CONSUMPTION_MANAGER = 0;
     public static final int PROCESS_MANAGER = 1;
@@ -76,6 +76,7 @@ public class Constants {
     public static final int MESSAGE_BUS = 4;
     public static final int FIELD_AGENT = 5;
     public static final int RESOURCE_MANAGER = 6;
+    public static final int GPS_MANAGER = 7;
 
     public static PrintStream systemOut;
 

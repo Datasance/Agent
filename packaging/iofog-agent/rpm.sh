@@ -1,5 +1,15 @@
 #!/bin/bash
 
+if ! command -v docker &> /dev/null && ! command -v podman &> /dev/null; then
+    echo "================================================"
+    echo "WARNING: No container runtime detected!"
+    echo "Please install either:"
+    echo "  - docker-ce (Docker)"
+    echo "  - podman (Podman)"
+    echo "This package requires a container runtime to function."
+    echo "================================================"
+fi
+
 # killing old running processes
 for KILLPID in `ps ax | grep 'iofog-agentd' | awk ' { print $1;}'`; do
   kill -9 $KILLPID;
@@ -89,7 +99,7 @@ mv /dev/random /dev/random.real
 ln -s /dev/urandom /dev/random
 #echo "Moved dev pipes for netty"
 
-chmod 774 /etc/init.d/iofog-agent
+chmod 774 /etc/systemd/system/iofog-agent.service
 #echo "Changed permissions on service script"
 
 chmod 754 /usr/bin/iofog-agent
@@ -98,9 +108,9 @@ chmod 754 /usr/bin/iofog-agent
 chown :iofog-agent /usr/bin/iofog-agent
 #echo "Changed ownership of command line executable file"
 
-chkconfig --add iofog-agent
-chkconfig iofog-agent on
-#echo "Registered init.d script for iofog-agent service"
+# Enable and start the service
+systemctl daemon-reload
+systemctl enable iofog-agent
 
 ln -sf /usr/bin/iofog-agent /usr/local/bin/iofog-agent
 #echo "Added symlink to iofog-agent command executable"

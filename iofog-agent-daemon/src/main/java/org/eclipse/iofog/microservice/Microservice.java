@@ -41,12 +41,23 @@ public class Microservice {
     private List<EnvVar> envVars;
     private List<String> args;
     private List<String> cdiDevs;
+    private String annotations;
+    private List<String> capAdd;
+    private List<String> capDrop;
     private List<String> extraHosts;
     private boolean isConsumer;
+    private boolean isRouter;
+    private String pidMode;
+    private String ipcMode;
+    private boolean execEnabled;
+    private int schedule;
+    private String cpuSetCpus;
+    private Long memoryLimit;
 
     private boolean delete;
     private boolean deleteWithCleanup;
     private boolean isStuckInRestart;
+    private Healthcheck healthcheck;
 
     public Microservice(String microserviceUuid, String imageName) {
         this.microserviceUuid = microserviceUuid;
@@ -76,6 +87,14 @@ public class Microservice {
 
     public void setRegistryId(int registryId) {
         this.registryId = registryId;
+    }
+
+    public int getSchedule() {
+        return schedule;
+    }
+    
+    public void setSchedule(int schedule) {
+        this.schedule = schedule;
     }
 
     public String getContainerId() {
@@ -142,6 +161,14 @@ public class Microservice {
         this.rootHostAccess = rootHostAccess;
     }
 
+    public boolean isExecEnabled() {
+        return execEnabled;
+    }
+
+    public void setExecEnabled(boolean execEnabled) {
+        this.execEnabled = execEnabled;
+    }
+
     public long getLogSize() {
         return logSize;
     }
@@ -194,6 +221,22 @@ public class Microservice {
 
     public void setCdiDevs(List<String> cdiDevs) { this.cdiDevs = cdiDevs; }
 
+    public String getAnnotations() {
+        return annotations;
+    }
+
+    public void setAnnotations(String annotations) {
+        this.annotations = annotations;
+    }
+
+    public List<String> getCapAdd() { return capAdd; }
+
+    public void setCapAdd(List<String> capAdd) { this.capAdd = capAdd; }
+
+    public List<String> getCapDrop() { return capDrop; }
+
+    public void setCapDrop(List<String> capDrop) { this.capDrop = capDrop; }
+
     @Override
     public boolean equals(Object e) {
         if (this == e) return true;
@@ -223,6 +266,30 @@ public class Microservice {
         isConsumer = consumer;
     }
 
+    public boolean isRouter() {
+        return isRouter;
+    }
+
+    public void setRouter(boolean router) {
+        isRouter = router;
+    }
+
+    public String getPidMode() {
+        return pidMode;
+    }
+
+    public void setPidMode(String pidMode) {
+        this.pidMode = pidMode;
+    }
+
+    public String getIpcMode() {
+        return ipcMode;
+    }
+
+    public void setIpcMode(String ipcMode) {
+        this.ipcMode = ipcMode;
+    }
+
     public List<String> getExtraHosts() {
         return extraHosts;
     }
@@ -237,5 +304,38 @@ public class Microservice {
 
     public void setStuckInRestart(boolean stuckInRestart) {
         isStuckInRestart = stuckInRestart;
+    }
+
+    public String getCpuSetCpus() {
+        return cpuSetCpus;
+    }
+
+    public void setCpuSetCpus(String cpuSetCpus) {
+        this.cpuSetCpus = cpuSetCpus;
+    }
+
+    public Healthcheck getHealthcheck() {
+        return healthcheck;
+    }
+
+    public void setHealthcheck(Healthcheck healthcheck) {
+        this.healthcheck = healthcheck;
+    }
+
+    public Long getMemoryLimit() {
+        return memoryLimit;
+    }
+
+    /**
+     * Gets the memory limit in MB
+     * @return memory limit in MB, or null if not set
+     */
+    public Long getMemoryLimitMB() {
+        return memoryLimit != null ? memoryLimit / (1024 * 1024) : null;
+    }
+
+    public void setMemoryLimit(Long memoryLimitMB) {
+        // Convert MB to bytes (1 MB = 1024 * 1024 bytes)
+        this.memoryLimit = memoryLimitMB != null ? memoryLimitMB * 1024 * 1024 : null;
     }
 }

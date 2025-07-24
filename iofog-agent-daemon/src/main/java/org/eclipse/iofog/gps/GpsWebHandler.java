@@ -18,6 +18,7 @@ import jakarta.json.JsonObject;
 import jakarta.json.JsonReader;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
 import java.net.URL;
 
 import static org.eclipse.iofog.utils.logging.LoggingService.logError;
@@ -71,8 +72,12 @@ public class GpsWebHandler {
 	 * @return JsonObject
 	 */
 	private static JsonObject getGeolocationData() throws Exception {
+		URL url = new URL("http://ip-api.com/json");
+		HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+		connection.setConnectTimeout(3000); // 3 seconds
+		connection.setReadTimeout(3000);    // 3 seconds
 		BufferedReader ipReader = new BufferedReader(
-				new InputStreamReader(new URL("http://ip-api.com/json").openStream()));
+				new InputStreamReader(connection.getInputStream()));
 		JsonReader jsonReader = Json.createReader(ipReader);
 		return jsonReader.readObject();
 	}

@@ -37,9 +37,15 @@ import org.eclipse.iofog.status_reporter.StatusReporter;
 import org.eclipse.iofog.utils.Constants;
 import org.eclipse.iofog.utils.Constants.ControllerStatus;
 import org.eclipse.iofog.utils.Orchestrator;
+import org.eclipse.iofog.utils.JwtManager;
 import org.eclipse.iofog.utils.configuration.Configuration;
 import org.eclipse.iofog.utils.functional.Pair;
+import org.eclipse.iofog.gps.GpsManager;
 import org.eclipse.iofog.utils.logging.LoggingService;
+import org.eclipse.iofog.volume_mount.VolumeMountManager;
+import org.eclipse.iofog.process_manager.ExecSessionCallback;
+import org.eclipse.iofog.process_manager.ExecSessionStatus;
+import org.eclipse.iofog.utils.ExecSessionWebSocketHandler;
 
 import jakarta.json.*;
 import javax.net.ssl.SSLHandshakeException;
@@ -53,6 +59,7 @@ import java.security.MessageDigest;
 import java.security.cert.CertificateException;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -81,6 +88,7 @@ public class FieldAgent implements IOFogModule {
     private final String filesPath = SystemUtils.IS_OS_WINDOWS ? SNAP_COMMON + "./etc/iofog-agent/" : SNAP_COMMON + "/etc/iofog-agent/";
 
     private Orchestrator orchestrator;
+    private ExecSessionWebSocketHandler execSessionWebSocketHandler;
     private SshProxyManager sshProxyManager;
     private long lastGetChangesList;
     private MicroserviceManager microserviceManager;
@@ -91,6 +99,12 @@ public class FieldAgent implements IOFogModule {
     private ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
     private ScheduledFuture<?> futureTask;
     private EdgeResourceManager edgeResourceManager;
+    private VolumeMountManager volumeMountManager;
+
+    private final Map<String, String> activeExecSessions = new ConcurrentHashMap<>();
+    private final Map<String, ExecSessionCallback> execCallbacks = new ConcurrentHashMap<>();
+    private final Map<String, ExecSessionWebSocketHandler> activeWebSockets = new ConcurrentHashMap<>();
+    private final Map<String, ExecSessionCallback> activeExecCallbacks = new ConcurrentHashMap<>();
 
     private FieldAgent() {
         lastGetChangesList = 0;
@@ -129,6 +143,8 @@ public class FieldAgent implements IOFogModule {
                         "UNKNOWN" : StatusReporter.getSupervisorStatus().getDaemonStatus().toString())
                 .add("daemonOperatingDuration", StatusReporter.getSupervisorStatus().getOperationDuration())
                 .add("daemonLastStart", StatusReporter.getSupervisorStatus().getDaemonLastStart())
+                .add("warningMessage", StatusReporter.getSupervisorStatus().getWarningMessage() == null ?
+                        "" : StatusReporter.getSupervisorStatus().getWarningMessage())
                 .add("memoryUsage", StatusReporter.getResourceConsumptionManagerStatus().getMemoryUsage())
                 .add("diskUsage", StatusReporter.getResourceConsumptionManagerStatus().getDiskUsage())
                 .add("cpuUsage", StatusReporter.getResourceConsumptionManagerStatus().getCpuUsage())
@@ -161,6 +177,9 @@ public class FieldAgent implements IOFogModule {
                         "UNKNOWN" : getVersion())
                 .add("isReadyToUpgrade", StatusReporter.getFieldAgentStatus().isReadyToUpgrade())
                 .add("isReadyToRollback", StatusReporter.getFieldAgentStatus().isReadyToRollback())
+                .add("activeVolumeMounts", StatusReporter.getVolumeMountManagerStatus().getActiveMounts())
+                .add("volumeMountLastUpdate", StatusReporter.getVolumeMountManagerStatus().getLastUpdate())
+                .add("gpsStatus", GpsManager.getInstance().getStatus().getHealthStatus().name())
                 .build();
     }
 
@@ -187,9 +206,9 @@ public class FieldAgent implements IOFogModule {
     }
 
     /**
-     * sends IOFog instance status to IOFog controller
+     * posts ioFog status to ioFog controller
      */
-    private void postStatusHelper() {
+    public void postStatusHelper() {
         logDebug("posting ioFog status");
         try {
             JsonObject status = getFogStatus();
@@ -305,11 +324,14 @@ public class FieldAgent implements IOFogModule {
     }
 
     private final Future<Boolean> processChanges(JsonObject changes) {
+        logDebug("Starting processChanges with changes: " + changes.toString());
         ExecutorService executor = Executors.newSingleThreadExecutor();
         return executor.submit(() -> {
             boolean resetChanges = true;
+            logDebug("Processing changes with initialization flag: " + initialization);
 
             if (changes.getBoolean("deleteNode",false) && !initialization) {
+                logDebug("Processing deleteNode change");
                 try {
                     deleteNode();
                 } catch (Exception e) {
@@ -318,6 +340,7 @@ public class FieldAgent implements IOFogModule {
                 }
             } else {
                 if (changes.getBoolean("reboot",false) && !initialization) {
+                    logDebug("Processing reboot change");
                     try {
                         reboot();
                     } catch (Exception e) {
@@ -326,6 +349,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("isImageSnapshot",false) && !initialization) {
+                    logDebug("Processing imageSnapshot change");
                     try {
                         createImageSnapshot();
                     } catch (Exception e) {
@@ -334,6 +358,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("config",false) && !initialization) {
+                    logDebug("Processing config change");
                     try {
                         getFogConfig();
                     } catch (Exception e) {
@@ -342,6 +367,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("version",false) && !initialization) {
+                    logDebug("Processing version change");
                     try {
                         changeVersion();
                     } catch (Exception e) {
@@ -350,6 +376,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("registries",false) || initialization) {
+                    logDebug("Processing registries change");
                     try {
                         loadRegistries(false);
                         ProcessManager.getInstance().update();
@@ -359,6 +386,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("prune", false) && !initialization) {
+                    logDebug("Processing prune change");
                     try {
                         DockerPruningManager.getInstance().pruneAgent();
                     } catch (Exception e) {
@@ -367,15 +395,23 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("microserviceConfig",false) || changes.getBoolean("microserviceList",false) ||
-                        changes.getBoolean("routing",false) || initialization) {
+                        changes.getBoolean("routing",false) || changes.getBoolean("execSessions",false) || initialization) {
+                    logDebug("Processing microservice related changes - microserviceConfig: " + changes.getBoolean("microserviceConfig",false) + 
+                            ", microserviceList: " + changes.getBoolean("microserviceList",false) + 
+                            ", routing: " + changes.getBoolean("routing",false) + 
+                            ", execSessions: " + changes.getBoolean("execSessions",false));
+                    logDebug("Changes object structure: " + changes.toString());
                     boolean microserviceConfig = changes.getBoolean("microserviceConfig");
                     boolean routing = changes.getBoolean("routing");
+                    boolean execSessions = changes.getBoolean("execSessions");
                     int defaultFreq = Configuration.getStatusFrequency();
                     Configuration.setStatusFrequency(1);
                     try {
                         List<Microservice> microservices = loadMicroservices(false);
+                        logDebug("Loaded " + microservices.size() + " microservices");
 
                         if (microserviceConfig) {
+                            logDebug("Processing microservice config changes");
                             try {
                                 processMicroserviceConfig(microservices);
                                 LocalApi.getInstance().update();
@@ -386,6 +422,7 @@ public class FieldAgent implements IOFogModule {
                         }
 
                         if (routing) {
+                            logDebug("Processing routing changes");
                             try {
                                 processRoutes(microservices);
                                 if (!changes.getBoolean("routerChanged",false) || initialization) {
@@ -393,6 +430,16 @@ public class FieldAgent implements IOFogModule {
                                 }
                             } catch (Exception e) {
                                 logError("Unable to update microservices routes", e);
+                                resetChanges = false;
+                            }
+                        }
+
+                        if (execSessions) {
+                            logDebug("Processing exec sessions changes");
+                            try {
+                                handleExecSessions(microservices);
+                            } catch (Exception e) {
+                                logError("Unable to handle exec sessions", e);
                                 resetChanges = false;
                             }
                         }
@@ -405,6 +452,7 @@ public class FieldAgent implements IOFogModule {
                 }
 
                 if (changes.getBoolean("tunnel",false) && !initialization) {
+                    logDebug("Processing tunnel change");
                     try {
                         sshProxyManager.update(getProxyConfig());
                     } catch (Exception e) {
@@ -413,6 +461,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("diagnostics",false) && !initialization) {
+                    logDebug("Processing diagnostics change");
                     try {
                         updateDiagnostics();
                     } catch (Exception e) {
@@ -421,6 +470,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("routerChanged",false) && !initialization) {
+                    logDebug("Processing routerChanged change");
                     try {
                         MessageBus.getInstance().update();
                     } catch (Exception e) {
@@ -429,6 +479,7 @@ public class FieldAgent implements IOFogModule {
                     }
                 }
                 if (changes.getBoolean("linkedEdgeResources",false) && !initialization) {
+                    logDebug("Processing linkedEdgeResources change");
                     boolean linkedEdgeResources = changes.getBoolean("linkedEdgeResources");
                     try {
                         if (linkedEdgeResources) {
@@ -440,7 +491,21 @@ public class FieldAgent implements IOFogModule {
                         resetChanges = false;
                     }
                 }
+                if (changes.getBoolean("volumeMounts",false) || initialization) {
+                    logDebug("Processing volumeMounts change");
+                    try {
+                        JsonObject result = orchestrator.request("volumeMounts", RequestType.GET, null, null);
+                        if (result.containsKey("volumeMounts")) {
+                            JsonArray volumeMounts = result.getJsonArray("volumeMounts");
+                            volumeMountManager.processVolumeMountChanges(volumeMounts);
+                        }
+                    } catch (Exception e) {
+                        logError("Unable to process volume mount changes", e);
+                        resetChanges = false;
+                    }
+                }
             }
+            logDebug("Finished processing changes with resetChanges: " + resetChanges);
             return resetChanges;
         });
     }
@@ -603,16 +668,18 @@ public class FieldAgent implements IOFogModule {
                     continue;
                 }
 
-
                 JsonObject result;
                 try {
+                    logDebug("Requesting changes from controller");
                     result = orchestrator.request("config/changes", RequestType.GET, null, null);
+                    logDebug("Received changes from controller: " + result.toString());
                 } catch (CertificateException | SSLHandshakeException e) {
                     verificationFailed(e);
                     logError("Unable to get changes due to broken certificate",
-                    		new AgentSystemException(e.getMessage(), e));
+                            new AgentSystemException(e.getMessage(), e));
                     continue;
                 } catch (SocketTimeoutException e) {
+                    logDebug("Socket timeout while getting changes, updating network interface");
                     IOFogNetworkInterfaceManager.getInstance().updateIOFogNetworkInterface();
                     continue;
                 } catch (Exception e) {
@@ -620,35 +687,40 @@ public class FieldAgent implements IOFogModule {
                     continue;
                 }
 
-
                 StatusReporter.setFieldAgentStatus().setLastCommandTime(lastGetChangesList);
 
                 String lastUpdated = result.getString("lastUpdated", null);
+                logDebug("Processing changes with lastUpdated: " + lastUpdated);
                 boolean resetChanges;
                 Future<Boolean> changesProcessor = processChanges(result);
 
                 try {
+                    logDebug("Waiting for changes processing to complete");
                     resetChanges = changesProcessor.get(30, TimeUnit.SECONDS);
+                    logDebug("Changes processing completed with resetChanges: " + resetChanges);
                 } catch (Exception e) {
+                    logError("Error waiting for changes processing", e);
                     resetChanges = false;
                     changesProcessor.cancel(true);
                 }
 
                 if (lastUpdated != null && resetChanges) {
-                    logDebug("Resetting config changes flags");
+                    logDebug("Resetting config changes flags with lastUpdated: " + lastUpdated);
                     try {
                         JsonObject req = Json.createObjectBuilder()
                                 .add("lastUpdated", lastUpdated)
                                 .build();
                         orchestrator.request("config/changes", RequestType.PATCH, null, req);
+                        logDebug("Successfully reset config changes flags");
                     } catch (Exception e) {
                         logError("Resetting config changes has failed", e);
                     }
                 }
 
                 initialization = initialization && !resetChanges;
+                logDebug("Finished getChangesList cycle with initialization: " + initialization);
             } catch (Exception e) {
-            	logError("Error getting changes list ", new AgentSystemException(e.getMessage(), e));
+                logError("Error getting changes list ", new AgentSystemException(e.getMessage(), e));
             }
             logDebug("Finish get IOFog changes list from IOFog controller");
         }
@@ -943,6 +1015,7 @@ public class FieldAgent implements IOFogModule {
             microservice.setRebuild(jsonObj.getBoolean("rebuild"));
             microservice.setRootHostAccess(jsonObj.getBoolean("rootHostAccess"));
             microservice.setRegistryId(jsonObj.getInt("registryId"));
+            microservice.setSchedule(jsonObj.getInt("schedule"));
             microservice.setLogSize(jsonObj.getJsonNumber("logSize").longValue());
             microservice.setDelete(jsonObj.getBoolean("delete"));
             microservice.setDeleteWithCleanup(jsonObj.getBoolean("deleteWithCleanup"));
@@ -951,6 +1024,11 @@ public class FieldAgent implements IOFogModule {
             microservice.setRoutes(getStringList(routesValue));
 
             microservice.setConsumer(jsonObj.getBoolean("isConsumer"));
+            microservice.setRouter(jsonObj.getBoolean("isRouter"));
+            if (jsonObj.getBoolean("isRouter")) {
+                Configuration.setRouterUuid(jsonObj.getString("uuid"));
+            }
+            microservice.setExecEnabled(jsonObj.getBoolean("execEnabled"));
 
             JsonValue portMappingValue = jsonObj.get("portMappings");
             if (!portMappingValue.getValueType().equals(JsonValue.ValueType.NULL)) {
@@ -1007,8 +1085,53 @@ public class FieldAgent implements IOFogModule {
             JsonValue cdiDevsValue = jsonObj.get("cdiDevices");
             microservice.setCdiDevs(getStringList(cdiDevsValue));
 
+            if (!jsonObj.isNull("annotations")) {
+                microservice.setAnnotations(jsonObj.getString("annotations"));
+            }
+
+            JsonValue capAddValue = jsonObj.get("capAdd");
+            microservice.setCapAdd(getStringList(capAddValue));
+
+            JsonValue capDropValue = jsonObj.get("capDrop");
+            microservice.setCapDrop(getStringList(capDropValue));
+
             JsonValue extraHostsValue = jsonObj.get("extraHosts");
             microservice.setExtraHosts(getStringList(extraHostsValue));
+
+            if (!jsonObj.isNull("pidMode")) {
+                microservice.setPidMode(jsonObj.getString("pidMode"));
+            }
+            if (!jsonObj.isNull("ipcMode")) {
+                microservice.setIpcMode(jsonObj.getString("ipcMode"));
+            }
+            if (!jsonObj.isNull("cpuSetCpus")) {
+                microservice.setCpuSetCpus(jsonObj.getString("cpuSetCpus"));
+            }
+
+            JsonValue healthcheckValue = jsonObj.get("healthCheck");
+            if (healthcheckValue != null && !healthcheckValue.getValueType().equals(JsonValue.ValueType.NULL)) {
+                JsonObject healthcheckObj = (JsonObject) healthcheckValue;
+                JsonValue testValue = healthcheckObj.get("test");
+                List<String> testList = getStringList(testValue);
+                
+                // Handle null values for numeric fields
+                Long interval = healthcheckObj.containsKey("interval") && !healthcheckObj.isNull("interval") ? 
+                    healthcheckObj.getJsonNumber("interval").longValue() : null;
+                Long timeout = healthcheckObj.containsKey("timeout") && !healthcheckObj.isNull("timeout") ? 
+                    healthcheckObj.getJsonNumber("timeout").longValue() : null;
+                Long startPeriod = healthcheckObj.containsKey("startPeriod") && !healthcheckObj.isNull("startPeriod") ? 
+                    healthcheckObj.getJsonNumber("startPeriod").longValue() : null;
+                Long startInterval = healthcheckObj.containsKey("startInterval") && !healthcheckObj.isNull("startInterval") ? 
+                    healthcheckObj.getJsonNumber("startInterval").longValue() : null;
+                Integer retries = healthcheckObj.containsKey("retries") && !healthcheckObj.isNull("retries") ? 
+                    healthcheckObj.getInt("retries") : null;
+                
+                microservice.setHealthcheck(new Healthcheck(testList, interval, timeout, startPeriod, startInterval, retries));
+            }
+
+            if (jsonObj.containsKey("memoryLimit") && !jsonObj.isNull("memoryLimit")) {
+                microservice.setMemoryLimit(jsonObj.getJsonNumber("memoryLimit").longValue());
+            }
 
             try {
                 LoggingService.setupMicroserviceLogger(microservice.getMicroserviceUuid(), microservice.getLogSize());
@@ -1204,6 +1327,18 @@ public class FieldAgent implements IOFogModule {
                 boolean watchdogEnabled = configs.containsKey(WATCHDOG_ENABLED.getJsonProperty()) ?
                         configs.getBoolean(WATCHDOG_ENABLED.getJsonProperty()) :
                         WATCHDOG_ENABLED.getDefaultValue().equalsIgnoreCase("OFF") ? false : true;
+                int edgeGuardFrequency = configs.containsKey(EDGE_GUARD_FREQUENCY.getJsonProperty()) ?
+                        configs.getInt(EDGE_GUARD_FREQUENCY.getJsonProperty()) :
+                        Integer.parseInt(EDGE_GUARD_FREQUENCY.getDefaultValue());
+                String gpsDevice = configs.containsKey(GPS_DEVICE.getJsonProperty()) ?
+                        configs.getString(GPS_DEVICE.getJsonProperty()) :
+                        GPS_DEVICE.getDefaultValue();
+                int gpsScanFrequency = configs.containsKey(GPS_SCAN_FREQUENCY.getJsonProperty()) ?
+                        configs.getInt(GPS_SCAN_FREQUENCY.getJsonProperty()) :
+                        Integer.parseInt(GPS_SCAN_FREQUENCY.getDefaultValue());
+                String gpsMode = configs.containsKey(GPS_MODE.getJsonProperty()) ?
+                        configs.getString(GPS_MODE.getJsonProperty()) :
+                        GPS_MODE.getDefaultValue();
                 double latitude = configs.containsKey("latitude") ?
                         configs.getJsonNumber("latitude").doubleValue() :
                         0;
@@ -1272,6 +1407,18 @@ public class FieldAgent implements IOFogModule {
 
                 if (Configuration.isWatchdogEnabled() != watchdogEnabled)
                     instanceConfig.put(WATCHDOG_ENABLED.getCommandName(), watchdogEnabled ? "on" : "off");
+
+                if ((Configuration.getEdgeGuardFrequency() != edgeGuardFrequency) && (edgeGuardFrequency >= 1))
+                instanceConfig.put(EDGE_GUARD_FREQUENCY.getCommandName(), edgeGuardFrequency);
+
+                if (Configuration.getGpsDevice() != gpsDevice)
+                    instanceConfig.put(GPS_DEVICE.getCommandName(), gpsDevice);
+
+                if (!Configuration.getGpsMode().equals(gpsMode))
+                    instanceConfig.put(GPS_MODE.getCommandName(), gpsMode);
+
+                if (Configuration.getGpsScanFrequency() != gpsScanFrequency)
+                    instanceConfig.put(GPS_SCAN_FREQUENCY.getCommandName(), gpsScanFrequency);
 
                 if (Configuration.getGpsCoordinates() != null && !Configuration.getGpsCoordinates().equals(gpsCoordinates)) {
                     instanceConfig.put(GPS_MODE.getCommandName(), gpsCoordinates);
@@ -1355,6 +1502,9 @@ public class FieldAgent implements IOFogModule {
                 .add(CHANGE_FREQUENCY.getJsonProperty(), Configuration.getChangeFrequency())
                 .add(DEVICE_SCAN_FREQUENCY.getJsonProperty(), Configuration.getDeviceScanFrequency())
                 .add(WATCHDOG_ENABLED.getJsonProperty(), Configuration.isWatchdogEnabled())
+                .add(EDGE_GUARD_FREQUENCY.getJsonProperty(), Configuration.getEdgeGuardFrequency())
+                .add(GPS_DEVICE.getJsonProperty(), Configuration.getGpsDevice())
+                .add(GPS_SCAN_FREQUENCY.getJsonProperty(), Configuration.getGpsScanFrequency())
                 .add(GPS_MODE.getJsonProperty(), Configuration.getGpsMode() == null ? "UNKNOWN" : Configuration.getGpsMode().name().toLowerCase())
                 .add("latitude", latitude)
                 .add("longitude", longitude)
@@ -1406,58 +1556,100 @@ public class FieldAgent implements IOFogModule {
         logInfo("Provisioning ioFog agent");
         JsonObject provisioningResult;
 
+        // Check if already provisioned
         if (!notProvisioned()) {
             try {
                 logInfo("Agent is already provisioned. Deprovisioning...");
                 StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
                 deProvision(false);
-            } catch (Exception e) {}
+            } catch (Exception e) {
+                logError("Error during deprovisioning", e);
+                return buildProvisionFailResponse("Error during deprovisioning", e);
+            }
+        }
+
+        // Reset JWT Manager to ensure clean state for new provisioning
+        try {
+            JwtManager.reset();
+            logDebug("JWT Manager reset for new provisioning");
+        } catch (Exception e) {
+            logWarning("Failed to reset JWT Manager before provisioning: " + e.getMessage());
+            // Continue with provisioning even if JWT reset fails
         }
 
         try {
-            provisioningLock.lock();
-            provisioningResult = orchestrator.provision(key);
-
-            microserviceManager.clear();
-            try{
-                ProcessManager.getInstance().deleteRemainingMicroservices();
-            } catch (Exception e) {
-                logError("Error deleting remaining microservices",
-                        new AgentSystemException(e.getMessage(), e));
+            // Try to acquire lock - if we can't get it, provisioning is already in progress
+            if (!provisioningLock.tryLock()) {
+                logWarning("Provisioning already in progress");
+                return buildProvisionFailResponse("Provisioning already in progress", null);
             }
-            StatusReporter.setFieldAgentStatus().setControllerStatus(OK);
-            Configuration.setIofogUuid(provisioningResult.getString("uuid"));
-            Configuration.setAccessToken(provisioningResult.getString("token"));
 
-            Configuration.saveConfigUpdates();
-            Configuration.updateConfigBackUpFile();
+            try {
+                // Perform provisioning
+                provisioningResult = orchestrator.provision(key);
+                
+                // Clear existing state
+                microserviceManager.clear();
+                try {
+                    ProcessManager.getInstance().deleteRemainingMicroservices();
+                } catch (Exception e) {
+                    logError("Error deleting remaining microservices", e);
+                }
 
-            postFogConfig();
-            loadRegistries(false);
-            List<Microservice> microservices = loadMicroservices(false);
-            processMicroserviceConfig(microservices);
-            processRoutes(microservices);
-            notifyModules();
-            loadEdgeResources(false);
+                // Set initial configuration
+                Configuration.setIofogUuid(provisioningResult.getString("uuid"));
+                Configuration.setPrivateKey(provisioningResult.getString("privateKey"));
+                Configuration.saveConfigUpdates();
+                Configuration.updateConfigBackUpFile();
 
-            sendHWInfoFromHalToController();
+                // Verify JWT generation works
+                try {
+                    if (JwtManager.generateJwt() == null) {
+                        logError("Failed to initialize JWT Manager", new AgentSystemException("Failed to initialize JWT Manager"));
+                        // Clean up on JWT failure
+                        Configuration.setIofogUuid("");
+                        Configuration.setPrivateKey("");
+                        Configuration.saveConfigUpdates();
+                        StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
+                        return buildProvisionFailResponse("Failed to initialize JWT Manager - Missing required dependencies", null);
+                    }
+                } catch (NoClassDefFoundError e) {
+                    logError("Missing required dependencies for JWT generation", new AgentSystemException(e.getMessage(), e));
+                    // Clean up on dependency error
+                    Configuration.setIofogUuid("");
+                    Configuration.setPrivateKey("");
+                    Configuration.saveConfigUpdates();
+                    StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
+                    return buildProvisionFailResponse("Missing required dependencies for JWT generation", new AgentSystemException(e.getMessage(), e));
+                }
 
-            postStatusHelper();
+                // Set status to OK since provisioning succeeded
+                StatusReporter.setFieldAgentStatus().setControllerStatus(OK);
 
-            logInfo("Provisioning success");
+                // Only do essential post-provisioning operations
+                try {
+                    postFogConfig();
+                } catch (Exception e) {
+                    logError("Error posting fog config", e);
+                    // Don't fail provisioning for this
+                }
+
+                logInfo("Provisioning success");
+                return provisioningResult;
+
+            } finally {
+                provisioningLock.unlock();
+            }
 
         } catch (CertificateException | SSLHandshakeException e) {
             verificationFailed(e);
-            provisioningResult = buildProvisionFailResponse("Certificate error", e);
+            return buildProvisionFailResponse("Certificate error", e);
         } catch (UnknownHostException e) {
             StatusReporter.setFieldAgentStatus().setControllerVerified(false);
-            provisioningResult = buildProvisionFailResponse("Connection error: unable to connect to fog controller.", e);
+            return buildProvisionFailResponse("Connection error: unable to connect to fog controller.", e);
         } catch (Exception e) {
-            provisioningResult = buildProvisionFailResponse(e.getMessage(), e);
-        } finally {
-            provisioningLock.unlock();
+            return buildProvisionFailResponse(e.getMessage(), e);
         }
-        return provisioningResult;
     }
 
     private JsonObject buildProvisionFailResponse(String message, Exception e) {
@@ -1503,9 +1695,18 @@ public class FieldAgent implements IOFogModule {
                 return "\nFailure - not provisioned";
             }
 
+            // Store configuration values before clearing them
+            String iofogUuid = Configuration.getIofogUuid();
+            String privateKey = Configuration.getPrivateKey();
+            
+            // Attempt deprovision request if not token expired
+            boolean deprovisionRequestSuccessful = false;
             if (!isTokenExpired) {
                 try {
+                    logDebug("Attempting deprovision request to controller");
                     orchestrator.request("deprovision", RequestType.POST, null, getDeprovisionBody());
+                    logInfo("Deprovision request completed successfully");
+                    deprovisionRequestSuccessful = true;
                 } catch (CertificateException | SSLHandshakeException e) {
                     verificationFailed(e);
                     logError("Unable to make deprovision request due to broken certificate ",
@@ -1514,15 +1715,31 @@ public class FieldAgent implements IOFogModule {
                     logError("Unable to make deprovision request ",
                             new AgentSystemException(e.getMessage(), e));
                 }
+            } else {
+                // If token is expired, we skip the deprovision request
+                logInfo("Skipping deprovision request due to expired token");
             }
 
+            // Update status to NOT_PROVISIONED
             StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
-            String iofogUuid = Configuration.getIofogUuid();
+            
+            // Clear configuration AFTER the deprovision request attempt
             boolean configUpdated = true;
             try {
                 Configuration.setIofogUuid("");
-                Configuration.setAccessToken("");
+                // Configuration.setAccessToken("");
+                Configuration.setPrivateKey("");
                 Configuration.saveConfigUpdates();
+                logDebug("Configuration cleared successfully");
+                
+                // Reset JWT Manager to clear static state and allow re-initialization with new credentials
+                try {
+                    JwtManager.reset();
+                    logDebug("JWT Manager reset completed");
+                } catch (Exception e) {
+                    logWarning("Failed to reset JWT Manager: " + e.getMessage());
+                    // Don't fail deprovisioning for JWT reset failure
+                }
             } catch (Exception e) {
                 configUpdated = false;
                 try {
@@ -1535,19 +1752,45 @@ public class FieldAgent implements IOFogModule {
                     Configuration.updateConfigBackUpFile();
                 }
             }
+            
+            // Clear microservice manager
             microserviceManager.clear();
+            
+            // Stop running microservices
             try {
                 ProcessManager.getInstance().stopRunningMicroservices(false, iofogUuid);
             } catch (Exception e) {
                 logError("Error stopping running microservices",
                         new AgentSystemException(e.getMessage(), e));
             }
-            notifyModules();
-            logInfo("Finished Deprovisioning : Success - tokens, identifiers and keys removed");
+            
+            // Clear volume mounts
+            try {
+                volumeMountManager.clear();
+            } catch (Exception e) {
+                logError("Error clearing volume mounts",
+                        new AgentSystemException(e.getMessage(), e));
+            }
+
+            // Notify modules AFTER configuration is cleared, but handle JWT failures gracefully
+            try {
+                logDebug("Notifying modules after configuration update");
+                notifyModules();
+                logDebug("Module notification completed");
+            } catch (Exception e) {
+                logWarning("Some module notifications failed during deprovisioning: " + e.getMessage());
+            }
+            
+            String resultMessage = deprovisionRequestSuccessful ? 
+                "Success - deprovisioned from controller and cleaned up locally" :
+                "Success - cleaned up locally (controller deprovision failed)";
+            
+            logInfo("Finished Deprovisioning : " + resultMessage);
+            return "\n" + resultMessage;
+            
         } finally {
             provisioningLock.unlock();
         }
-        return "\nSuccess - tokens, identifiers and keys removed";
     }
 
     private JsonObject getDeprovisionBody() {
@@ -1586,14 +1829,26 @@ public class FieldAgent implements IOFogModule {
      */
     public void start() {
         logDebug("Start the Field Agent");
-        if (isNullOrEmpty(Configuration.getIofogUuid()) || isNullOrEmpty(Configuration.getAccessToken()))
+        
+        // Initialize JWT Manager first if we have the private key
+        if (!isNullOrEmpty(Configuration.getIofogUuid()) && !isNullOrEmpty(Configuration.getPrivateKey())) {
+            // Try to generate JWT to verify private key is valid
+            if (JwtManager.generateJwt() == null) {
+                logError("Failed to initialize JWT Manager", new AgentSystemException("Failed to initialize JWT Manager"));
+                StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
+            } else {
+                StatusReporter.setFieldAgentStatus().setControllerStatus(OK);
+            }
+        } else {
             StatusReporter.setFieldAgentStatus().setControllerStatus(NOT_PROVISIONED);
+        }
 
+        // Initialize other components
         microserviceManager = MicroserviceManager.getInstance();
         orchestrator = new Orchestrator();
         sshProxyManager = new SshProxyManager(new SshConnection());
         edgeResourceManager = EdgeResourceManager.getInstance();
-
+        volumeMountManager = VolumeMountManager.getInstance();
         boolean isConnected = ping();
         getFogConfig();
         if (!notProvisioned()) {
@@ -1604,6 +1859,7 @@ public class FieldAgent implements IOFogModule {
             loadEdgeResources(!isConnected);
         }
 
+        // Start background threads
         new Thread(pingController, Constants.FIELD_AGENT_PING_CONTROLLER).start();
         new Thread(getChangesList, Constants.FIELD_AGENT_GET_CHANGE_LIST).start();
         new Thread(postStatus, Constants.FIELD_AGENT_POST_STATUS).start();
@@ -1612,6 +1868,7 @@ public class FieldAgent implements IOFogModule {
         StatusReporter.setFieldAgentStatus().setReadyToUpgrade(VersionHandler.isReadyToUpgrade());
         StatusReporter.setFieldAgentStatus().setReadyToRollback(VersionHandler.isReadyToRollback());
         futureTask = scheduler.scheduleAtFixedRate(getAgentReadyToUpgradeStatus, 0, Configuration.getReadyToUpgradeScanFrequency(), TimeUnit.HOURS);
+        
         logDebug("Field Agent started");
     }
 
@@ -1700,6 +1957,24 @@ public class FieldAgent implements IOFogModule {
         return response.isPresent() && !response.get().toString().isEmpty();
     }
 
+    private Optional<HttpURLConnection> sendHttpGetReq(String spec) {
+    	logDebug("Start sending Http request");
+        HttpURLConnection connection;
+        try {
+            URL url = new URL(spec);
+            connection = (HttpURLConnection) url.openConnection();
+            if(connection != null){
+                connection.setRequestMethod(HttpMethod.GET);
+                connection.getResponseCode();
+            }
+        } catch (IOException exc) {
+            connection = null;
+            logDebug("HAL is not enabled for this Iofog Agent at the moment");
+        }
+        logDebug("Finished sending Http request");
+        return Optional.ofNullable(connection);
+    }
+
     private Optional<StringBuilder> getResponse(String spec) {
     	logDebug("Start get response");
         Optional<HttpURLConnection> connection = sendHttpGetReq(spec);
@@ -1720,24 +1995,6 @@ public class FieldAgent implements IOFogModule {
         }
         logDebug("Finished get response");
         return Optional.ofNullable(content);
-    }
-
-    private Optional<HttpURLConnection> sendHttpGetReq(String spec) {
-    	logDebug("Start sending Http request");
-        HttpURLConnection connection;
-        try {
-            URL url = new URL(spec);
-            connection = (HttpURLConnection) url.openConnection();
-            if(connection != null){
-                connection.setRequestMethod(HttpMethod.GET);
-                connection.getResponseCode();
-            }
-        } catch (IOException exc) {
-            connection = null;
-            logDebug("HAL is not enabled for this Iofog Agent at the moment");
-        }
-        logDebug("Finished sending Http request");
-        return Optional.ofNullable(connection);
     }
 
     private void createImageSnapshot() {
@@ -1818,5 +2075,324 @@ public class FieldAgent implements IOFogModule {
             futureTask.cancel(true);
         }
         futureTask = scheduler.scheduleAtFixedRate(getAgentReadyToUpgradeStatus, 0, Configuration.getReadyToUpgradeScanFrequency(), TimeUnit.HOURS);
+    }
+
+    private void handleExecSessions(List<Microservice> microservices) {
+        LoggingService.logDebug(MODULE_NAME, "Starting handleExecSessions for " + microservices.size() + " microservices");
+        logDebug("Start handling exec sessions");
+
+        CompletableFuture<?>[] futures = microservices.stream()
+            .map(microservice -> CompletableFuture.runAsync(() -> {
+                LoggingService.logDebug(MODULE_NAME, "Processing exec session for microservice: " + microservice.getMicroserviceUuid() + ", exec enabled: " + microservice.isExecEnabled());
+                if (!microservice.isExecEnabled()) {
+                    LoggingService.logDebug(MODULE_NAME, "Exec is disabled for microservice: " + microservice.getMicroserviceUuid());
+                    // Handle disabled exec sessions
+                    String existingExecId = getCurrentExecSessionId(microservice.getMicroserviceUuid());
+                    if (existingExecId != null) {
+                        LoggingService.logDebug(MODULE_NAME, "Found existing exec session to cleanup: " + existingExecId);
+                        try {
+                            // Kill exec session asynchronously
+                            CompletableFuture.runAsync(() -> {
+                                try {
+                                    LoggingService.logDebug(MODULE_NAME, "Killing exec session: " + existingExecId);
+                                    ProcessManager.getInstance().killExecSession(existingExecId);
+                                    LoggingService.logDebug(MODULE_NAME, "Successfully killed exec session: " + existingExecId);
+                                } catch (Exception e) {
+                                    logError("Failed to kill exec session for microservice: " + microservice.getMicroserviceUuid(), e);
+                                }
+                            });
+
+                            // Handle WebSocket cleanup asynchronously
+                            CompletableFuture.runAsync(() -> {
+                                LoggingService.logDebug(MODULE_NAME, "Cleaning up WebSocket for microservice: " + microservice.getMicroserviceUuid());
+                                ExecSessionWebSocketHandler wsHandler = activeWebSockets.remove(microservice.getMicroserviceUuid());
+                                if (wsHandler != null) {
+                                    LoggingService.logDebug(MODULE_NAME, "Found active WebSocket handler, disconnecting");
+                                    wsHandler.disconnect();
+                                    LoggingService.logDebug(MODULE_NAME, "Successfully disconnected WebSocket handler");
+                                } else {
+                                    LoggingService.logDebug(MODULE_NAME, "No active WebSocket handler found to disconnect");
+                                }
+                                activeExecSessions.remove(microservice.getMicroserviceUuid());
+                                execCallbacks.remove(microservice.getMicroserviceUuid());
+                                LoggingService.logDebug(MODULE_NAME, "Cleaned up exec session and callback maps");
+                            });
+                        } catch (Exception e) {
+                            logError("Failed to handle exec session cleanup for microservice: " + microservice.getMicroserviceUuid(), e);
+                        }
+                    } else {
+                        LoggingService.logDebug(MODULE_NAME, "No existing exec session found to cleanup for microservice: " + microservice.getMicroserviceUuid());
+                    }
+                } else {
+                    LoggingService.logDebug(MODULE_NAME, "Exec is enabled for microservice: " + microservice.getMicroserviceUuid());
+                    // Handle enabled exec sessions
+                    try {
+                        String execId = getCurrentExecSessionId(microservice.getMicroserviceUuid());
+                        
+                        if (execId != null) {
+                            LoggingService.logDebug(MODULE_NAME, "Found existing exec session: " + execId);
+                            // Check if existing session is still valid
+                            ExecSessionStatus status = ProcessManager.getInstance().getExecSessionStatus(execId);
+                            LoggingService.logDebug(MODULE_NAME, "Exec session status: " + (status != null ? "running=" + status.isRunning() : "null"));
+                            if (status == null || !status.isRunning()) {
+                                LoggingService.logDebug(MODULE_NAME, "Existing exec session is not running, creating new session");
+                                // Only create new session if current one is not running
+                                CompletableFuture.runAsync(() -> {
+                                    try {
+                                        // Create new exec session with fallback shell command
+                                        String[] command = {"sh", "-c", "clear; (bash || ash || sh)"};
+                                        LoggingService.logDebug(MODULE_NAME, "Creating new exec session with command: " + String.join(" ", command));
+                                        ExecSessionCallback callback = new ExecSessionCallback(
+                                            microservice.getMicroserviceUuid(),
+                                            execId
+                                        );
+                                        ProcessManager.getInstance().createExecSession(
+                                            microservice.getMicroserviceUuid(), command, callback)
+                                        .thenAccept(newExecId -> {
+                                            LoggingService.logDebug(MODULE_NAME, "Created new exec session: " + newExecId);
+                                            // Store the new session info
+                                            activeExecSessions.put(microservice.getMicroserviceUuid(), newExecId);
+                                            execCallbacks.put(microservice.getMicroserviceUuid(), callback);
+                                            LoggingService.logDebug(MODULE_NAME, "Stored new session info in maps");
+
+                                            // Set up callback handlers
+                                            handleExecSessionCallback(microservice.getMicroserviceUuid(), callback);
+
+                                            // Create and connect WebSocket handler
+                                            LoggingService.logDebug(MODULE_NAME, "Creating and connecting WebSocket handler");
+                                            ExecSessionWebSocketHandler wsHandler = ExecSessionWebSocketHandler.getInstance(microservice.getMicroserviceUuid());
+                                            LoggingService.logDebug(MODULE_NAME, "Got WebSocket handler instance, checking if already exists in activeWebSockets");
+                                            if (activeWebSockets.containsKey(microservice.getMicroserviceUuid())) {
+                                                LoggingService.logDebug(MODULE_NAME, "Found existing WebSocket handler, cleaning up before creating new one");
+                                                ExecSessionWebSocketHandler existingHandler = activeWebSockets.get(microservice.getMicroserviceUuid());
+                                                existingHandler.disconnect();
+                                                activeWebSockets.remove(microservice.getMicroserviceUuid());
+                                            }
+                                            LoggingService.logDebug(MODULE_NAME, "Connecting new WebSocket handler");
+                                            wsHandler.connect();
+                                            activeWebSockets.put(microservice.getMicroserviceUuid(), wsHandler);
+                                            LoggingService.logDebug(MODULE_NAME, "Successfully created and connected WebSocket handler");
+                                        })
+                                        .exceptionally(e -> {
+                                            logError("Failed to create new exec session for microservice: " + microservice.getMicroserviceUuid(), new AgentSystemException(e.getMessage(), e));
+                                            return null;
+                                        });
+                                    } catch (Exception e) {
+                                        logError("Failed to create new exec session for microservice: " + microservice.getMicroserviceUuid(), e);
+                                    }
+                                });
+                            } else {
+                                LoggingService.logDebug(MODULE_NAME, "Existing exec session is still running: " + execId);
+                            }
+                        } else {
+                            LoggingService.logDebug(MODULE_NAME, "No existing exec session found, creating new one");
+                            // No existing session, create new one
+                            CompletableFuture.runAsync(() -> {
+                                try {
+                                    // Create new exec session with fallback shell command
+                                    String[] command = {"sh", "-c", "clear; (bash || ash || sh)"};
+                                    LoggingService.logDebug(MODULE_NAME, "Creating new exec session with command: " + String.join(" ", command));
+                                    ExecSessionCallback callback = new ExecSessionCallback(
+                                        microservice.getMicroserviceUuid(),
+                                        execId
+                                    );
+                                    ProcessManager.getInstance().createExecSession(
+                                        microservice.getMicroserviceUuid(), command, callback)
+                                    .thenAccept(newExecId -> {
+                                        LoggingService.logDebug(MODULE_NAME, "Created new exec session: " + newExecId);
+                                        // Store the new session info
+                                        activeExecSessions.put(microservice.getMicroserviceUuid(), newExecId);
+                                        execCallbacks.put(microservice.getMicroserviceUuid(), callback);
+                                        LoggingService.logDebug(MODULE_NAME, "Stored new session info in maps");
+
+                                        // Set up callback handlers
+                                        handleExecSessionCallback(microservice.getMicroserviceUuid(), callback);
+
+                                        // Create and connect WebSocket handler
+                                        LoggingService.logDebug(MODULE_NAME, "Creating and connecting WebSocket handler");
+                                        ExecSessionWebSocketHandler wsHandler = ExecSessionWebSocketHandler.getInstance(microservice.getMicroserviceUuid());
+                                        LoggingService.logDebug(MODULE_NAME, "Got WebSocket handler instance, checking if already exists in activeWebSockets");
+                                        if (activeWebSockets.containsKey(microservice.getMicroserviceUuid())) {
+                                            LoggingService.logDebug(MODULE_NAME, "Found existing WebSocket handler, cleaning up before creating new one");
+                                            ExecSessionWebSocketHandler existingHandler = activeWebSockets.get(microservice.getMicroserviceUuid());
+                                            existingHandler.disconnect();
+                                            activeWebSockets.remove(microservice.getMicroserviceUuid());
+                                        }
+                                        LoggingService.logDebug(MODULE_NAME, "Connecting new WebSocket handler");
+                                        wsHandler.connect();
+                                        activeWebSockets.put(microservice.getMicroserviceUuid(), wsHandler);
+                                        LoggingService.logDebug(MODULE_NAME, "Successfully created and connected WebSocket handler");
+                                    })
+                                    .exceptionally(e -> {
+                                        logError("Failed to create new exec session for microservice: " + microservice.getMicroserviceUuid(), new AgentSystemException(e.getMessage(), e));
+                                        return null;
+                                    });
+                                } catch (Exception e) {
+                                    logError("Failed to create new exec session for microservice: " + microservice.getMicroserviceUuid(), e);
+                                }
+                            });
+                        }
+                    } catch (Exception e) {
+                        logError("Failed to handle exec session for microservice: " + microservice.getMicroserviceUuid(), e);
+                    }
+                }
+            }))
+            .toArray(CompletableFuture[]::new);
+
+        // Wait for all async operations to complete
+        CompletableFuture.allOf(futures)
+            .exceptionally(throwable -> {
+                logError("Error during async exec session handling", new AgentSystemException(throwable.getMessage(), throwable));
+                return null;
+            });
+        LoggingService.logDebug(MODULE_NAME, "Completed handleExecSessions processing");
+    }
+
+    private void handleExecSessionCallback(String microserviceUuid, ExecSessionCallback callback) {
+        LoggingService.logDebug(MODULE_NAME, "Setting up exec session callback for microservice: " + microserviceUuid);
+        try {
+            // Add callback to active callbacks map
+            activeExecCallbacks.put(microserviceUuid, callback);
+            LoggingService.logDebug(MODULE_NAME, "Added callback to activeExecCallbacks map");
+
+            // Set up input handler
+            callback.setOnInputHandler(data -> {
+                LoggingService.logDebug(MODULE_NAME, "Input handler called with data length: " + data.length);
+                handleExecSessionOutput(microserviceUuid, (byte) 0, data);
+            });
+
+            // Set up output handler
+            callback.setOnOutputHandler(data -> {
+                LoggingService.logDebug(MODULE_NAME, "Output handler called with data length: " + data.length);
+                handleExecSessionOutput(microserviceUuid, (byte) 1, data);
+            });
+
+            // Set up error handler
+            callback.setOnErrorHandler(data -> {
+                LoggingService.logDebug(MODULE_NAME, "Error handler called with data length: " + data.length);
+                handleExecSessionOutput(microserviceUuid, (byte) 2, data);
+            });
+
+            // Set up close handler
+            callback.setOnCloseHandler(() -> {
+                LoggingService.logDebug(MODULE_NAME, "Close handler called");
+                cleanupExecSession(microserviceUuid);
+            });
+
+            LoggingService.logDebug(MODULE_NAME, "Successfully set up exec session callback handlers");
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error setting up exec session callback", e);
+        }
+    }
+
+    private void cleanupExecSession(String microserviceUuid) {
+        try {
+            LoggingService.logInfo(MODULE_NAME, "Cleaning up exec session for microservice: " + microserviceUuid);
+            
+            // Remove from active sessions
+            activeExecSessions.remove(microserviceUuid);
+            
+            // Cleanup callback
+            ExecSessionCallback callback = activeExecCallbacks.remove(microserviceUuid);
+            if (callback != null) {
+                callback.close();
+            }
+            
+            // Cleanup WebSocket if no other sessions
+            if (!activeExecSessions.containsKey(microserviceUuid)) {
+                ExecSessionWebSocketHandler handler = activeWebSockets.remove(microserviceUuid);
+                if (handler != null) {
+                    handler.disconnect();
+                }
+            }
+            
+            LoggingService.logInfo(MODULE_NAME, "Exec session cleanup completed");
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error cleaning up exec session", e);
+        }
+    }
+
+    private void handleExecSessionOutput(String microserviceUuid, byte outputType, byte[] output) {
+        try {
+            LoggingService.logDebug(MODULE_NAME, "Handling exec session output for microservice: " + microserviceUuid + 
+                ", type: " + outputType + ", length: " + output.length);
+            
+            ExecSessionWebSocketHandler handler = activeWebSockets.get(microserviceUuid);
+            if (handler == null) {
+                LoggingService.logWarning(MODULE_NAME, "No active WebSocket handler found for microservice: " + microserviceUuid);
+                return;
+            }
+            
+            if (!handler.isConnected()) {
+                LoggingService.logWarning(MODULE_NAME, "WebSocket handler not connected for microservice: " + microserviceUuid);
+                return;
+            }
+            
+            handler.sendMessage(outputType, output);
+            LoggingService.logDebug(MODULE_NAME, "Successfully sent output to WebSocket");
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error handling exec session output", e);
+        }
+    }
+
+    public Map<String, String> getActiveExecSessions() {
+        return Collections.unmodifiableMap(activeExecSessions);
+    }
+
+    public Map<String, ExecSessionCallback> getExecCallbacks() {
+        return Collections.unmodifiableMap(execCallbacks);
+    }
+
+    public Map<String, ExecSessionCallback> getActiveExecCallbacks() {
+        return Collections.unmodifiableMap(activeExecCallbacks);
+    }
+
+    public Map<String, ExecSessionWebSocketHandler> getActiveWebSockets() {
+        return Collections.unmodifiableMap(activeWebSockets);
+    }
+
+    private String getCurrentExecSessionId(String microserviceUuid) {
+        return activeExecSessions.get(microserviceUuid);
+    }
+
+    public void handleExecSessionClose(String microserviceUuid, String execId) {
+        LoggingService.logInfo(MODULE_NAME, "Handling exec session close for microservice: " + microserviceUuid + 
+            ", execId: " + execId);
+        
+        try {
+            // Kill the exec session
+            LoggingService.logDebug(MODULE_NAME, "Killing exec session: " + execId);
+            ProcessManager.getInstance().killExecSession(execId);
+            LoggingService.logDebug(MODULE_NAME, "Successfully killed exec session: " + execId);
+            
+            // Cleanup session tracking
+            if (activeExecSessions.containsKey(microserviceUuid) && 
+                activeExecSessions.get(microserviceUuid).equals(execId)) {
+                LoggingService.logDebug(MODULE_NAME, "Removing exec session from tracking");
+                activeExecSessions.remove(microserviceUuid);
+            }
+            
+            // Cleanup callback
+            ExecSessionCallback callback = activeExecCallbacks.remove(microserviceUuid);
+            if (callback != null) {
+                LoggingService.logDebug(MODULE_NAME, "Cleaning up callback");
+                callback.close();
+            }
+            
+            // Cleanup WebSocket if no other sessions
+            if (!activeExecSessions.containsKey(microserviceUuid)) {
+                LoggingService.logDebug(MODULE_NAME, "No other active sessions, cleaning up WebSocket");
+                ExecSessionWebSocketHandler handler = activeWebSockets.remove(microserviceUuid);
+                if (handler != null) {
+                    handler.disconnect();
+                }
+            } else {
+                LoggingService.logDebug(MODULE_NAME, "Other active sessions exist, keeping WebSocket connection");
+            }
+            
+            LoggingService.logInfo(MODULE_NAME, "Exec session close handling completed for microservice: " + microserviceUuid);
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error handling exec session close", e);
+        }
     }
 }

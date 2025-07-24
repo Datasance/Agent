@@ -83,6 +83,7 @@ RUN cat iofog-agent.txt iofog-agentd.txt iofog-agentvc.txt | \
 # Create a custom Java runtime
 RUN $JAVA_HOME/bin/jlink \
          --add-modules $(cat modules.txt) \
+         --add-modules jdk.crypto.ec \
          --strip-debug \
          --no-man-pages \
          --no-header-files \
@@ -95,8 +96,8 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS ubi-dep
 # Install necessary dependencies
 RUN true && \
     microdnf install -y ca-certificates shadow-utils gzip procps-ng && \
-    microdnf reinstall -y tzdata && \
-    microdnf clean all && \
+    microdnf install -y tzdata && microdnf reinstall -y tzdata\
+    microdnf clean all && \ 
     rm -rf /var/cache/* && \
     true
 
@@ -116,6 +117,7 @@ COPY --from=ubi-dep /usr/bin/gzip /usr/bin/
 COPY --from=ubi-dep /usr/bin/pgrep /usr/bin/
 COPY --from=ubi-dep /usr/bin/awk /usr/bin/
 COPY --from=ubi-dep /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/
+COPY --from=ubi-dep /etc/pki/tls/certs/ca-bundle.crt /etc/pki/tls/certs/
 
 # Copy required shared libraries for curl grep awk
 COPY --from=ubi-dep /usr/lib64/libc.so.6 /usr/lib64/
@@ -168,7 +170,7 @@ ENV PATH="${JAVA_HOME}/bin:${PATH}"
 COPY --from=jre-build /javaruntime $JAVA_HOME
 
 COPY --from=builder packaging/iofog-agent/usr ./usr
-COPY --from=builder packaging/iofog-agent/etc/init.d /etc/init.d/
+COPY --from=builder packaging/iofog-agent/etc/systemd/system/iofog-agent.service /etc/systemd/system/iofog-agent.service
 COPY --from=builder packaging/iofog-agent/etc/bash_completion.d /etc/bash_completion.d/
 COPY --from=builder packaging/iofog-agent/etc/iofog-agent /etc/iofog-agent/
 
@@ -195,7 +197,7 @@ RUN true && \
     chmod 774 -R /var/run/iofog-agent && \
     chmod 774 -R /var/backups/iofog-agent && \
     chmod 754 -R /usr/share/iofog-agent && \
-    chmod 774 /etc/init.d/iofog-agent && \
+    chmod 774 /etc/systemd/system/iofog-agent.service && \
     chmod 754 /usr/bin/iofog-agent && \
     chown :iofog-agent /usr/bin/iofog-agent && \
     true

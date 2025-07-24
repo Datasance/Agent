@@ -61,8 +61,20 @@ public class DockerPruningManager {
         LoggingService.logInfo(MODULE_NAME, "Start docker pruning manager");
         scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleAtFixedRate(triggerPruneOnThresholdBreach, 0, 30, TimeUnit.MINUTES);
-        futureTask = scheduler.scheduleAtFixedRate(triggerPruneOnFrequency, Configuration.getDockerPruningFrequency(), Configuration.getDockerPruningFrequency(), TimeUnit.HOURS);
-        LoggingService.logInfo(MODULE_NAME, "Docker pruning manager started");
+        
+        // Only schedule frequency-based pruning if frequency is positive
+        long pruningFrequency = Configuration.getDockerPruningFrequency();
+        if (pruningFrequency > 0) {
+            futureTask = scheduler.scheduleAtFixedRate(
+                triggerPruneOnFrequency, 
+                pruningFrequency, 
+                pruningFrequency, 
+                TimeUnit.HOURS
+            );
+            LoggingService.logInfo(MODULE_NAME, "Docker pruning manager started with frequency: " + pruningFrequency + " hours");
+        } else {
+            LoggingService.logInfo(MODULE_NAME, "Docker pruning manager started without frequency-based pruning (frequency set to 0)");
+        }
     }
 
     /**
@@ -122,27 +134,48 @@ public class DockerPruningManager {
         List<Container> nonIoFogContainers = docker.getRunningNonIofogContainers();
         LoggingService.logDebug(MODULE_NAME, "Total number of running non iofog containers : " + nonIoFogContainers.size());
 
-        // Removes the non-ioFog running container from the images to be prune list
-        List<Image> ioFogImages = images.stream().filter(im -> nonIoFogContainers.stream()
-                .noneMatch(c -> c.getImageId().equals(im.getId())))
-                .collect(Collectors.toList());
-
-        LoggingService.logInfo(MODULE_NAME, "Total number of ioFog images  : " + ioFogImages.size());
+        // Get all running container image IDs (both ioFog and non-ioFog)
+        Set<String> usedImageIds = new HashSet<>();
+        
+        // Add images used by non-ioFog containers
+        nonIoFogContainers.forEach(c -> usedImageIds.add(c.getImageId()));
+        
+        // Get all running ioFog microservices
         List<Microservice> microservices = microserviceManager.getLatestMicroservices();
         LoggingService.logInfo(MODULE_NAME, "Total number of running microservices : " + microservices.size());
+        
+        // Add images used by microservices
+        microservices.forEach(ms -> {
+            String imageName = ms.getImageName();
+            images.stream()
+                .filter(im -> im.getRepoTags() != null && 
+                             im.getRepoTags().length > 0 && 
+                             im.getRepoTags()[0].equals(imageName))
+                .findFirst()
+                .ifPresent(im -> usedImageIds.add(im.getId()));
+        });
 
-        // Removes the ioFog running containers from the images to be prune list
-        Set<String> imageIDsToBePruned = ioFogImages.stream().filter(im -> im.getRepoTags() != null)
-                .filter(im -> microservices.stream()
-                .noneMatch(ms -> ms.getImageName().equals(im.getRepoTags()[0])))
-                .map(Image::getId)
-                .collect(Collectors.toSet());
-        Set<String> imagesWithNoTags =  ioFogImages.stream()
-                .filter(im -> im.getRepoTags() == null)
-                .map(Image::getId)
-                .collect(Collectors.toSet());
-        imageIDsToBePruned.addAll(imagesWithNoTags);
+        // Identify prunable images
+        Set<String> imageIDsToBePruned = new HashSet<>();
+
+        // Handle tagged images not in use
+        images.stream()
+            .filter(im -> im.getRepoTags() != null && im.getRepoTags().length > 0)
+            .filter(im -> !usedImageIds.contains(im.getId()))
+            .map(Image::getId)
+            .forEach(imageIDsToBePruned::add);
+
+        // Handle untagged images not in use
+        images.stream()
+            .filter(im -> im.getRepoTags() == null || im.getRepoTags().length == 0)
+            .filter(im -> !usedImageIds.contains(im.getId()))
+            .map(Image::getId)
+            .forEach(imageIDsToBePruned::add);
+
+        LoggingService.logInfo(MODULE_NAME, "Total number of images: " + images.size());
+        LoggingService.logInfo(MODULE_NAME, "Number of used images: " + usedImageIds.size());
         LoggingService.logInfo(MODULE_NAME, "Total number of unwanted images to be pruned : " + imageIDsToBePruned.size());
+        
         return imageIDsToBePruned;
     }
 
@@ -187,8 +220,21 @@ public class DockerPruningManager {
     public void changePruningFreqInterval() {
         if (futureTask != null) {
             futureTask.cancel(true);
+            futureTask = null;
         }
-        futureTask = scheduler.scheduleAtFixedRate(triggerPruneOnFrequency, Configuration.getDockerPruningFrequency() , Configuration.getDockerPruningFrequency(), TimeUnit.HOURS);
+        
+        long pruningFrequency = Configuration.getDockerPruningFrequency();
+        if (pruningFrequency > 0) {
+            futureTask = scheduler.scheduleAtFixedRate(
+                triggerPruneOnFrequency, 
+                pruningFrequency, 
+                pruningFrequency, 
+                TimeUnit.HOURS
+            );
+            LoggingService.logInfo(MODULE_NAME, "Docker pruning frequency updated to: " + pruningFrequency + " hours");
+        } else {
+            LoggingService.logInfo(MODULE_NAME, "Docker pruning frequency set to 0 - frequency-based pruning disabled");
+        }
     }
 
 }
