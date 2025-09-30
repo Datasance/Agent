@@ -15,3 +15,4 @@ iofog-version-controller/bin
 bats-core
 *.iml
 Dockerfile-test
+Dockerfile-scratch

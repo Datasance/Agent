@@ -394,6 +394,10 @@ public class FieldAgent implements IOFogModule {
                         resetChanges = false;
                     }
                 }
+                if (changes.getBoolean("volumeMounts",false) || initialization) {
+                    logDebug("Processing volumeMounts change");
+                    loadVolumeMounts();
+                }
                 if (changes.getBoolean("microserviceConfig",false) || changes.getBoolean("microserviceList",false) ||
                         changes.getBoolean("routing",false) || changes.getBoolean("execSessions",false) || initialization) {
                     logDebug("Processing microservice related changes - microserviceConfig: " + changes.getBoolean("microserviceConfig",false) + 
@@ -488,19 +492,6 @@ public class FieldAgent implements IOFogModule {
                         }
                     } catch (Exception e) {
                         logError("Unable to update linked edge resources", e);
-                        resetChanges = false;
-                    }
-                }
-                if (changes.getBoolean("volumeMounts",false) || initialization) {
-                    logDebug("Processing volumeMounts change");
-                    try {
-                        JsonObject result = orchestrator.request("volumeMounts", RequestType.GET, null, null);
-                        if (result.containsKey("volumeMounts")) {
-                            JsonArray volumeMounts = result.getJsonArray("volumeMounts");
-                            volumeMountManager.processVolumeMountChanges(volumeMounts);
-                        }
-                    } catch (Exception e) {
-                        logError("Unable to process volume mount changes", e);
                         resetChanges = false;
                     }
                 }
@@ -928,6 +919,21 @@ public class FieldAgent implements IOFogModule {
         String filename = MICROSERVICE_FILE;
         JsonArray microservicesJson = readFile(filesPath + filename);
         return  microservicesJson;
+    }
+
+    /**
+     * gets list of VolumeMounts from IOFog controller
+     */
+    private void loadVolumeMounts() {
+        try {
+            JsonObject result = orchestrator.request("volumeMounts", RequestType.GET, null, null);
+            if (result.containsKey("volumeMounts")) {
+                JsonArray volumeMounts = result.getJsonArray("volumeMounts");
+                volumeMountManager.processVolumeMountChanges(volumeMounts);
+            }
+        } catch (Exception e) {
+            logError("Unable to process volume mount changes", e);
+        }
     }
 
     /**
@@ -1408,7 +1414,7 @@ public class FieldAgent implements IOFogModule {
                 if (Configuration.isWatchdogEnabled() != watchdogEnabled)
                     instanceConfig.put(WATCHDOG_ENABLED.getCommandName(), watchdogEnabled ? "on" : "off");
 
-                if ((Configuration.getEdgeGuardFrequency() != edgeGuardFrequency) && (edgeGuardFrequency >= 1))
+                if ((Configuration.getEdgeGuardFrequency() != edgeGuardFrequency) && (edgeGuardFrequency >= 0))
                 instanceConfig.put(EDGE_GUARD_FREQUENCY.getCommandName(), edgeGuardFrequency);
 
                 if (Configuration.getGpsDevice() != gpsDevice)
@@ -1431,7 +1437,7 @@ public class FieldAgent implements IOFogModule {
                 if (Configuration.getLogLevel() != null && !Configuration.getLogLevel().equals(logLevel))
                     instanceConfig.put(LOG_LEVEL.getCommandName(), logLevel);
 
-                if ((Configuration.getDockerPruningFrequency() != dockerPruningFrequency) && (dockerPruningFrequency >= 1))
+                if ((Configuration.getDockerPruningFrequency() != dockerPruningFrequency) && (dockerPruningFrequency >= 0))
                     instanceConfig.put(DOCKER_PRUNING_FREQUENCY.getCommandName(), dockerPruningFrequency);
 
                 if (Configuration.getAvailableDiskThreshold() != availableDiskThreshold  && (availableDiskThreshold >= 1)) {
@@ -1524,6 +1530,44 @@ public class FieldAgent implements IOFogModule {
             logError("Unable to post ioFog config ", new AgentSystemException(e.getMessage(), e));
         }
         logInfo("Finished Post ioFog config");
+    }
+
+    /**
+     * sends IOFog instance GPSconfiguration to IOFog controller
+     */
+    private void postGpsConfig() {
+        logInfo("Post ioFog GPS config");
+        if (notProvisioned() || !isControllerConnected(false)) {
+            return;
+        }
+
+        double latitude = 0, longitude = 0;
+        try {
+            String gpsCoordinates = Configuration.getGpsCoordinates();
+            if (gpsCoordinates != null) {
+                String[] coords = gpsCoordinates.split(",");
+                latitude = Double.parseDouble(coords[0]);
+                longitude = Double.parseDouble(coords[1]);
+            }
+        } catch (Exception e) {
+            logError("Error while parsing GPS coordinates", new AgentSystemException(e.getMessage(), e));
+        }
+
+        JsonObject json = Json.createObjectBuilder()
+                .add("latitude", latitude)
+                .add("longitude", longitude)
+                .build();
+
+        try {
+            orchestrator.request("config/gps", RequestType.PATCH, null, json);
+        } catch (CertificateException | SSLHandshakeException e) {
+            verificationFailed(e);
+            logError("Unable to post ioFog GPS config due to broken certificate ",
+            		new AgentSystemException(e.getMessage(), e));
+        } catch (Exception e) {
+            logError("Unable to post ioFog GPS config ", new AgentSystemException(e.getMessage(), e));
+        }
+        logInfo("Finished Post ioFog GPS config");
     }
 
     /**
@@ -1825,6 +1869,19 @@ public class FieldAgent implements IOFogModule {
     }
 
     /**
+     * sends IOFog GPS configuration when any changes applied
+     */
+    public void instanceGpsConfigUpdated() {
+        logDebug("Start IOFog GPS configuration update");
+        try {
+            postGpsConfig();
+        } catch (Exception e) {
+            logError("Error posting updated for GPS config ", e);
+        }
+        logDebug("Finished IOFog GPS configuration update");
+    }
+
+    /**
      * starts Field Agent module
      */
     public void start() {
@@ -1853,6 +1910,7 @@ public class FieldAgent implements IOFogModule {
         getFogConfig();
         if (!notProvisioned()) {
             loadRegistries(!isConnected);
+            loadVolumeMounts();
             List<Microservice> microservices = loadMicroservices(!isConnected);
             processMicroserviceConfig(microservices);
             processRoutes(microservices);
