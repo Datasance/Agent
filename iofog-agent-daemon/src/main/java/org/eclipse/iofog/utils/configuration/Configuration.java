@@ -483,7 +483,7 @@ public final class Configuration {
 
     public static void saveGpsConfigUpdates() throws Exception {
         LoggingService.logInfo(MODULE_NAME, "Start updating agent GPS configurations");
-        FieldAgent.getInstance().instanceConfigUpdated();
+        FieldAgent.getInstance().instanceGpsConfigUpdated();
         LoggingService.logInfo(MODULE_NAME, "Finished updating agent GPS configurations");
     }
 
