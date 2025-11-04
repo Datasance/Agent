@@ -52,6 +52,7 @@ public class ProcessManager implements IOFogModule {
 	private DockerUtil docker;
 	private ContainerManager containerManager;
 	private static ProcessManager instance;
+	private final Object monitorLock = new Object();
 
 	private ProcessManager() {
 	}
@@ -91,6 +92,18 @@ public class ProcessManager implements IOFogModule {
 	 */
 	public void update() {
 		updateRegistriesStatus();
+		// Notify the monitor thread to restart immediately instead of waiting
+		notifyMonitorThread();
+	}
+
+	/**
+	 * Notifies the containers monitor thread to wake up immediately
+	 * and process microservice changes without waiting for the next scheduled interval
+	 */
+	private void notifyMonitorThread() {
+		synchronized (monitorLock) {
+			monitorLock.notifyAll();
+		}
 	}
 
 	/**
@@ -98,19 +111,26 @@ public class ProcessManager implements IOFogModule {
 	 * removes {@link Container}  if does not exists in list of {@link Microservice}
 	 * restarts {@link Container} if it has been stopped
 	 * updates {@link Container} if restarting failed!
+	 * 
+	 * Uses wait/notify pattern to allow immediate restart when microservices change,
+	 * instead of waiting for the full sleep interval.
 	 */
 	private final Runnable containersMonitor = () -> {
 		while (true) {
-			try {
-				Thread.sleep(Configuration.getMonitorContainersStatusFreqSeconds() * 1000);
-			} catch (InterruptedException e) {
-				logError("Error while sleeping thread", 
-						new AgentSystemException(e.getMessage(), e));
+			synchronized (monitorLock) {
+				try {
+					// Wait for the configured interval, but can be woken up early by notifyMonitorThread()
+					monitorLock.wait(Configuration.getMonitorContainersStatusFreqSeconds() * 1000);
+				} catch (InterruptedException e) {
+					logError("Error while waiting for monitor interval", 
+							new AgentSystemException(e.getMessage(), e));
+					// Restore interrupted status
+					Thread.currentThread().interrupt();
+				}
 			}
 			logDebug("Start Monitoring containers");
 
 			try {
-
 				handleLatestMicroservices();
 				deleteRemainingMicroservices();
 				updateRunningMicroservicesCount();

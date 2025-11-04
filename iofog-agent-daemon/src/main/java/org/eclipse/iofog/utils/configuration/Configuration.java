@@ -137,6 +137,7 @@ public final class Configuration {
     private static String tlsCert;
     private static String tlsKey;
     private static String routerUuid;
+    private static boolean isRouterInterior;
     private static boolean devMode;
 
     public static boolean isDevMode() {
@@ -159,6 +160,14 @@ public final class Configuration {
         return routerHost;
     }
 
+    public static boolean isRouterInterior() {
+        return isRouterInterior;
+    }
+
+    public static void setRouterInterior(boolean isRouterInterior) {
+        Configuration.isRouterInterior = isRouterInterior;
+    }
+
     public static void setRouterHost(String routerHost) {
         Configuration.routerHost = routerHost;
     }
@@ -175,25 +184,25 @@ public final class Configuration {
     	LoggingService.logInfo(MODULE_NAME, "Start update Automatic ConfigParams ");
         switch (fogType) {
             case ARM:
-                statusReportFreqSeconds = 5;
-                pingControllerFreqSeconds = 60;
+                statusReportFreqSeconds = 5; //
+                pingControllerFreqSeconds = 30;
                 speedCalculationFreqMinutes = 1;
-                monitorContainersStatusFreqSeconds = 10;
-                monitorRegistriesStatusFreqSeconds = 60;
+                monitorContainersStatusFreqSeconds = 5;
+                monitorRegistriesStatusFreqSeconds = 60; //
                 getUsageDataFreqSeconds = 5;
                 dockerApiVersion = "1.45";
-                setSystemTimeFreqSeconds = 60;
+                setSystemTimeFreqSeconds = 5;
                 monitorSshTunnelStatusFreqSeconds = 30;
                 break;
             case INTEL_AMD:
-                statusReportFreqSeconds = 5;
-                pingControllerFreqSeconds = 60;
+                statusReportFreqSeconds = 5; //
+                pingControllerFreqSeconds = 30;
                 speedCalculationFreqMinutes = 1;
-                monitorContainersStatusFreqSeconds = 10;
-                monitorRegistriesStatusFreqSeconds = 60;
+                monitorContainersStatusFreqSeconds = 5;
+                monitorRegistriesStatusFreqSeconds = 60; //
                 getUsageDataFreqSeconds = 5;
                 dockerApiVersion = "1.45";
-                setSystemTimeFreqSeconds = 60;
+                setSystemTimeFreqSeconds = 5;
                 monitorSshTunnelStatusFreqSeconds = 30;
                 break;
         }
