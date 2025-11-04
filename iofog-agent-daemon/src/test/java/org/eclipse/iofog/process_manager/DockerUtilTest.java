@@ -771,7 +771,7 @@ public class DockerUtilTest {
             Mockito.when(inspectContainerResponse.getHostConfig()).thenReturn(hostConfig);
             Mockito.when(hostConfig.getExtraHosts()).thenReturn(extraHost);
             Mockito.when(hostConfig.getNetworkMode()).thenReturn("host");
-            Mockito.when(microservice.isRootHostAccess()).thenReturn(true);
+            Mockito.when(microservice.isHostNetworkMode()).thenReturn(true);
             assertTrue(dockerUtil.areMicroserviceAndContainerEqual(containerID, microservice));
         } catch (Exception e) {
             fail("This should not happen");
@@ -1015,7 +1015,7 @@ public class DockerUtilTest {
      * Test createContainer
      * When microservice.getPortMappings are present
      * microservice.getVolumeMappings are present
-     * microservice.isRootHostAccess false
+     * microservice.isHostNetworkMode false
      */
     @Test
     public void testCreateContainerWhenPortMappingsAndBindVolumeMappingsArePresent() {
@@ -1024,7 +1024,7 @@ public class DockerUtilTest {
         Mockito.when(microservice.getImageName()).thenReturn("microserviceName");
         Mockito.when(microservice.getMicroserviceUuid()).thenReturn("uuid");
         assertEquals(containerID, dockerUtil.createContainer(microservice, "host"));
-        Mockito.verify(microservice).isRootHostAccess();
+        Mockito.verify(microservice).isHostNetworkMode();
         Mockito.verify(createContainerCmd).withHostConfig(any(HostConfig.class));
         Mockito.verify(createContainerCmd).withLabels(any());
         Mockito.verify(createContainerCmd, Mockito.never()).withCmd(any(List.class));
@@ -1034,14 +1034,14 @@ public class DockerUtilTest {
      * Test createContainer
      * When microservice.getPortMappings are present
      * microservice.getVolumeMappings are present
-     * microservice.isRootHostAccess true
+     * microservice.isHostNetworkMode true
      */
     @Test
     public void testCreateContainerWhenPortMappingsAndBindVolumeMappingsArePresentWithRootAccess() {
         List<String> args = new ArrayList<>();
         args.add("args");
         Mockito.when(microservice.getPortMappings()).thenReturn(portMappingList);
-        Mockito.when(microservice.isRootHostAccess()).thenReturn(true);
+        Mockito.when(microservice.isHostNetworkMode()).thenReturn(true);
         Mockito.when(microservice.getArgs()).thenReturn(args);
         Mockito.when(microservice.getVolumeMappings()).thenReturn(volumeMappingList);
         Mockito.when(microservice.getImageName()).thenReturn("microserviceName");
@@ -1063,7 +1063,7 @@ public class DockerUtilTest {
         List<String> extraHosts = new ArrayList<>();
         String host = "extra-host:1.2.3.4";
         extraHosts.add(host);
-        Mockito.when(microservice.isRootHostAccess()).thenReturn(false);
+        Mockito.when(microservice.isHostNetworkMode()).thenReturn(false);
         Mockito.when(microservice.getExtraHosts()).thenReturn(extraHosts);
         Mockito.when(microservice.getImageName()).thenReturn("microserviceName");
         Mockito.when(microservice.getMicroserviceUuid()).thenReturn("uuid");
@@ -1078,7 +1078,7 @@ public class DockerUtilTest {
      * Test createContainer
      * When microservice.getPortMappings are present
      * microservice.getVolumeMappings are present
-     * microservice.isRootHostAccess true
+     * microservice.isHostNetworkMode true
      * throws NotFoundException
      */
     @Test

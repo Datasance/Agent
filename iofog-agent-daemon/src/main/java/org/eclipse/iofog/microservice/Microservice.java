@@ -34,7 +34,8 @@ public class Microservice {
     private int registryId;
     private String containerIpAddress;
     private boolean rebuild;
-    private boolean rootHostAccess;
+    private boolean hostNetworkMode;
+    private boolean isPrivileged;
     private long logSize;
     private List<VolumeMapping> volumeMappings;
     private boolean isUpdating;
@@ -153,12 +154,20 @@ public class Microservice {
         return imageName;
     }
 
-    public boolean isRootHostAccess() {
-        return rootHostAccess;
+    public boolean isPrivileged() {
+        return isPrivileged;
     }
 
-    public void setRootHostAccess(boolean rootHostAccess) {
-        this.rootHostAccess = rootHostAccess;
+    public boolean isHostNetworkMode() {
+        return hostNetworkMode;
+    }
+
+    public void setHostNetworkMode(boolean hostNetworkMode) {
+        this.hostNetworkMode = hostNetworkMode;
+    }
+
+    public void setIsPrivileged(boolean isPrivileged) {
+        this.isPrivileged = isPrivileged;
     }
 
     public boolean isExecEnabled() {

@@ -437,6 +437,10 @@ public class FieldAgent implements IOFogModule {
                                 resetChanges = false;
                             }
                         }
+                        
+                        // Notify ProcessManager to immediately restart monitoring thread
+                        // This ensures containers are processed without waiting for the next scheduled interval
+                        ProcessManager.getInstance().update();
 
                         if (execSessions) {
                             logDebug("Processing exec sessions changes");
@@ -1019,7 +1023,8 @@ public class FieldAgent implements IOFogModule {
                 microservice.setRuntime(jsonObj.getString("runtime"));
             }
             microservice.setRebuild(jsonObj.getBoolean("rebuild"));
-            microservice.setRootHostAccess(jsonObj.getBoolean("rootHostAccess"));
+            microservice.setHostNetworkMode(jsonObj.getBoolean("hostNetworkMode"));
+            microservice.setIsPrivileged(jsonObj.getBoolean("isPrivileged"));
             microservice.setRegistryId(jsonObj.getInt("registryId"));
             microservice.setSchedule(jsonObj.getInt("schedule"));
             microservice.setLogSize(jsonObj.getJsonNumber("logSize").longValue());
@@ -1033,6 +1038,7 @@ public class FieldAgent implements IOFogModule {
             microservice.setRouter(jsonObj.getBoolean("isRouter"));
             if (jsonObj.getBoolean("isRouter")) {
                 Configuration.setRouterUuid(jsonObj.getString("uuid"));
+                Configuration.setRouterInterior(jsonObj.getBoolean("hostNetworkMode"));
             }
             microservice.setExecEnabled(jsonObj.getBoolean("execEnabled"));
 
@@ -1914,6 +1920,9 @@ public class FieldAgent implements IOFogModule {
             List<Microservice> microservices = loadMicroservices(!isConnected);
             processMicroserviceConfig(microservices);
             processRoutes(microservices);
+            // Notify ProcessManager to immediately restart monitoring thread
+            // This ensures containers are processed during initialization without waiting
+            ProcessManager.getInstance().update();
             loadEdgeResources(!isConnected);
         }
 

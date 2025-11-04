@@ -521,7 +521,7 @@ public class DockerUtil {
     public boolean areMicroserviceAndContainerEqual(String containerId, Microservice microservice) {
     	LoggingService.logDebug(MODULE_NAME ,"Are Microservice And Container Equal microservice : " + microservice.getImageName() + "container id : " + containerId);
         InspectContainerResponse inspectInfo = dockerClient.inspectContainerCmd(containerId).exec();
-        return isPortMappingEqual(inspectInfo, microservice) && isNetworkModeEqual(inspectInfo, microservice);
+        return isPortMappingEqual(inspectInfo, microservice) && isNetworkModeEqual(inspectInfo, microservice) && isEnvVarsEqual(inspectInfo, microservice);
     }
 
     /**
@@ -534,10 +534,10 @@ public class DockerUtil {
      */
     private boolean isNetworkModeEqual(InspectContainerResponse inspectInfo, Microservice microservice) {
     	LoggingService.logDebug(MODULE_NAME ,"is NetworkMode Equal for microservice : " + microservice.getImageName());
-        boolean isRootHostAccess = microservice.isRootHostAccess();
+        boolean isHostNetworkMode = microservice.isHostNetworkMode();
         HostConfig hostConfig = inspectInfo.getHostConfig();
-        return (isRootHostAccess && "host".equals(hostConfig.getNetworkMode()))
-            || !isRootHostAccess && (hostConfig != null && hostConfig.getExtraHosts() != null && hostConfig.getExtraHosts().length > 0);
+        return (isHostNetworkMode && "host".equals(hostConfig.getNetworkMode()))
+            || !isHostNetworkMode && (hostConfig != null && hostConfig.getExtraHosts() != null && hostConfig.getExtraHosts().length > 0);
     }
 
     /**
@@ -558,6 +558,58 @@ public class DockerUtil {
         LoggingService.logDebug(MODULE_NAME ,"is PortMapping Equal for microservice " + microservice.getImageName() + " : " + areEqual);
 
         return areEqual;
+    }
+
+    /**
+     * compares if microservice environment variables are equal to container environment variables
+     *
+     * @param inspectInfo  result of docker inspect command
+     * @param microservice microservice
+     * @return boolean
+     */
+    private boolean isEnvVarsEqual(InspectContainerResponse inspectInfo, Microservice microservice) {
+        LoggingService.logDebug(MODULE_NAME, "is EnvVars Equal for microservice : " + microservice.getImageName());
+        
+        // Get microservice environment variables
+        List<EnvVar> microserviceEnvVars = microservice.getEnvVars();
+        if (microserviceEnvVars == null || microserviceEnvVars.isEmpty()) {
+            microserviceEnvVars = new ArrayList<>();
+        }
+        
+        // Get container environment variables from inspect info
+        String[] containerEnvArray = inspectInfo.getConfig().getEnv();
+        Map<String, String> containerEnvVars = new HashMap<>();
+        if (containerEnvArray != null) {
+            for (String envVar : containerEnvArray) {
+                if (envVar != null && envVar.contains("=")) {
+                    String[] parts = envVar.split("=", 2);
+                    if (parts.length == 2) {
+                        containerEnvVars.put(parts[0], parts[1]);
+                    }
+                }
+            }
+        }
+        
+        // Check if all microservice env vars exist in container with same values
+        for (EnvVar microserviceEnvVar : microserviceEnvVars) {
+            String key = microserviceEnvVar.getKey();
+            String expectedValue = microserviceEnvVar.getValue();
+            
+            if (!containerEnvVars.containsKey(key)) {
+                LoggingService.logDebug(MODULE_NAME, "Env var key not found in container: " + key);
+                return false;
+            }
+            
+            String actualValue = containerEnvVars.get(key);
+            if (!expectedValue.equals(actualValue)) {
+                LoggingService.logDebug(MODULE_NAME, "Env var value mismatch for key " + key + 
+                    ". Expected: " + expectedValue + ", Actual: " + actualValue);
+                return false;
+            }
+        }
+        
+        LoggingService.logDebug(MODULE_NAME, "Env vars are equal for microservice " + microservice.getImageName());
+        return true;
     }
 
     private List<PortMapping> getMicroservicePorts(Microservice microservice) {
@@ -763,12 +815,19 @@ public class DockerUtil {
         }
 
         // Add service.local host for non-router microservices
-        if (!microservice.isRootHostAccess() && !microservice.isRouter()) {
-            String routerIP = getRouterMicroserviceIP();
-            if (routerIP != null) {
+        if (!microservice.isHostNetworkMode() && !microservice.isRouter()) {
+            if (!Configuration.isRouterInterior()) {
+                String routerIP = getRouterMicroserviceIP();
+                if (routerIP != null) {
+                    String[] newHosts = new String[hosts.length + 1];
+                    System.arraycopy(hosts, 0, newHosts, 0, hosts.length);
+                    newHosts[hosts.length] = "service.local:" + routerIP;
+                    hosts = newHosts;
+                }
+            } else {
                 String[] newHosts = new String[hosts.length + 1];
                 System.arraycopy(hosts, 0, newHosts, 0, hosts.length);
-                newHosts[hosts.length] = "service.local:" + routerIP;
+                newHosts[hosts.length] = "service.local:" + host;
                 hosts = newHosts;
             }
         }
@@ -853,23 +912,29 @@ public class DockerUtil {
         }
 
         if (SystemUtils.IS_OS_WINDOWS) {
-            if(microservice.isRootHostAccess()){
-                hostConfig.withNetworkMode("host").withExtraHosts(hosts).withPrivileged(true);
+            if(microservice.isHostNetworkMode()){
+                hostConfig.withNetworkMode("host").withExtraHosts(hosts);
             } else if(hosts[hosts.length - 1] != null) {
-                hostConfig.withNetworkMode("pot").withExtraHosts(hosts).withPrivileged(false);
+                hostConfig.withNetworkMode("pot").withExtraHosts(hosts);
             }
         } else if (SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) {
-            if(microservice.isRootHostAccess()){
-                hostConfig.withNetworkMode("host").withPrivileged(true);
+            if(microservice.isHostNetworkMode()){
+                hostConfig.withNetworkMode("host");
             } else if(hosts[hosts.length - 1] != null) {
-                hostConfig.withNetworkMode("pot").withExtraHosts(hosts).withPrivileged(false);
+                hostConfig.withNetworkMode("pot").withExtraHosts(hosts);
             }
+        }
+
+        if (microservice.isPrivileged()) {
+            hostConfig.withPrivileged(true);
+        } else {
+            hostConfig.withPrivileged(false);
         }
 
         if (microservice.getRuntime() != null && !microservice.getRuntime().isEmpty()) {
             hostConfig.withRuntime(microservice.getRuntime());
         }
-
+        // TODO: Test cdi devices if this one is not working, either add capabilities "gpu" or add controller microservice cdi definition capabilities
         if (microservice.getCdiDevs() != null && !microservice.getCdiDevs().isEmpty()) {
             List<String> deviceIds = microservice.getCdiDevs();
             DeviceRequest deviceRequest = new DeviceRequest()
