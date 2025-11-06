@@ -810,7 +810,7 @@ public class DockerUtil {
         } else {
             hosts = new String[1];
         }
-        if (!host.isEmpty() && !hasIoFogExtraHost) {
+        if (host != null && !host.isEmpty() && !hasIoFogExtraHost) {
             hosts[hosts.length - 1] = "iofog:" + host;
         }
 
@@ -818,19 +818,37 @@ public class DockerUtil {
         if (!microservice.isHostNetworkMode() && !microservice.isRouter()) {
             if (!Configuration.isRouterInterior()) {
                 String routerIP = getRouterMicroserviceIP();
-                if (routerIP != null) {
+                if (routerIP != null && !routerIP.isEmpty()) {
                     String[] newHosts = new String[hosts.length + 1];
                     System.arraycopy(hosts, 0, newHosts, 0, hosts.length);
                     newHosts[hosts.length] = "service.local:" + routerIP;
                     hosts = newHosts;
                 }
             } else {
-                String[] newHosts = new String[hosts.length + 1];
-                System.arraycopy(hosts, 0, newHosts, 0, hosts.length);
-                newHosts[hosts.length] = "service.local:" + host;
-                hosts = newHosts;
+                if (host != null && !host.isEmpty()) {
+                    String[] newHosts = new String[hosts.length + 1];
+                    System.arraycopy(hosts, 0, newHosts, 0, hosts.length);
+                    newHosts[hosts.length] = "service.local:" + host;
+                    hosts = newHosts;
+                }
             }
         }
+
+        // Filter out null entries and entries with empty IP addresses
+        hosts = Arrays.stream(hosts)
+                .filter(h -> h != null && !h.trim().isEmpty())
+                .filter(h -> {
+                    // Validate host entry format: should be "hostname:ip" or just "hostname:ip"
+                    // Check if IP part (after colon) is not empty
+                    int colonIndex = h.indexOf(':');
+                    if (colonIndex > 0 && colonIndex < h.length() - 1) {
+                        String ipPart = h.substring(colonIndex + 1).trim();
+                        return !ipPart.isEmpty();
+                    }
+                    // If no colon, it's invalid format
+                    return false;
+                })
+                .toArray(String[]::new);
 
         Map<String, String> containerLogConfig = new HashMap<>();
         int logFiles = 1;
@@ -913,14 +931,18 @@ public class DockerUtil {
 
         if (SystemUtils.IS_OS_WINDOWS) {
             if(microservice.isHostNetworkMode()){
-                hostConfig.withNetworkMode("host").withExtraHosts(hosts);
-            } else if(hosts[hosts.length - 1] != null) {
+                if (hosts.length > 0) {
+                    hostConfig.withNetworkMode("host").withExtraHosts(hosts);
+                } else {
+                    hostConfig.withNetworkMode("host");
+                }
+            } else if(hosts.length > 0) {
                 hostConfig.withNetworkMode("pot").withExtraHosts(hosts);
             }
         } else if (SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) {
             if(microservice.isHostNetworkMode()){
                 hostConfig.withNetworkMode("host");
-            } else if(hosts[hosts.length - 1] != null) {
+            } else if(hosts.length > 0) {
                 hostConfig.withNetworkMode("pot").withExtraHosts(hosts);
             }
         }
