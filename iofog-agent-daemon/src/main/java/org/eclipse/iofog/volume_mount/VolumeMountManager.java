@@ -219,6 +219,11 @@ public class VolumeMountManager {
                 try {
                     String decodedContent = decodeBase64(value.toString());
                     Path filePath = mountPath.resolve(key);
+                    // Create parent directories if they don't exist
+                    Path parentDir = filePath.getParent();
+                    if (parentDir != null) {
+                        Files.createDirectories(parentDir);
+                    }
                     Files.write(filePath, decodedContent.getBytes());
                     // Store relative path instead of content
                     dataBuilder.add(key, filePath.toString());
@@ -283,6 +288,11 @@ public class VolumeMountManager {
                 try {
                     String decodedContent = decodeBase64(value.toString());
                     Path filePath = mountPath.resolve(key);
+                    // Create parent directories if they don't exist
+                    Path parentDir = filePath.getParent();
+                    if (parentDir != null) {
+                        Files.createDirectories(parentDir);
+                    }
                     Files.write(filePath, decodedContent.getBytes());
                     // Store relative path instead of content
                     dataBuilder.add(key, filePath.toString());
