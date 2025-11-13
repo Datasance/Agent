@@ -51,7 +51,8 @@ jobs:
     - uses: gradle/actions/setup-gradle@v5
       with:
         gradle-version: 8.4
-        arguments: build copy
+    - name: Build and copy
+      run: ./gradlew build copy
 
     - name: 'Get Previous tag'
       id: previoustag
