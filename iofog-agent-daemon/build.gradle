@@ -23,8 +23,13 @@ dependencies {
     //testCompile 'org.powermock:powermock-module-junit4:2.0.2'
     //testCompile 'org.powermock:powermock-api-mockito2:2.0.2'
     //testCompile 'org.powermock:powermock-core:2.0.2'
-    implementation 'com.github.docker-java:docker-java:3.6.0'
-    implementation 'com.github.docker-java:docker-java-transport-httpclient5:3.6.0'
+    implementation('com.github.docker-java:docker-java:3.7.0') {
+        exclude group: 'com.github.docker-java', module: 'docker-java-transport-jersey'
+        exclude group: 'com.github.docker-java', module: 'docker-java-transport-netty'
+        exclude group: 'com.github.docker-java', module: 'docker-java-transport-okhttp'
+    }
+    implementation 'com.github.docker-java:docker-java-transport-httpclient5:3.7.0'
+    implementation 'javax.ws.rs:javax.ws.rs-api:2.1.1'
     implementation 'io.netty:netty-all:4.2.4.Final'
     implementation 'org.jboss.logmanager:jboss-logmanager:3.0.6.Final'
     implementation 'com.github.mwiede:jsch:0.2.20'
