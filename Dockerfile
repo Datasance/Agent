@@ -106,73 +106,76 @@ RUN true && \
     usermod -aG root,wheel iofog-agent && \
     true
 
+# Intermediate stage to collect all ubi-dep files
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS ubi-dep-staging
+COPY --from=ubi-dep /usr/share/zoneinfo /staging/usr/share/zoneinfo
+COPY --from=ubi-dep /usr/bin/curl /staging/usr/bin/curl
+COPY --from=ubi-dep /usr/bin/grep /staging/usr/bin/grep
+COPY --from=ubi-dep /usr/bin/gzip /staging/usr/bin/gzip
+COPY --from=ubi-dep /usr/bin/pgrep /staging/usr/bin/pgrep
+COPY --from=ubi-dep /usr/bin/awk /staging/usr/bin/awk
+COPY --from=ubi-dep /etc/ssl/certs/ca-bundle.crt /staging/etc/ssl/certs/ca-bundle.crt
+COPY --from=ubi-dep /etc/pki/tls/certs/ca-bundle.crt /staging/etc/pki/tls/certs/ca-bundle.crt
+COPY --from=ubi-dep /usr/lib64/libc.so.6 /staging/usr/lib64/libc.so.6
+COPY --from=ubi-dep /usr/lib64/libcom_err.so.2 /staging/usr/lib64/libcom_err.so.2
+COPY --from=ubi-dep /usr/lib64/libcrypto.so.3 /staging/usr/lib64/libcrypto.so.3
+COPY --from=ubi-dep /usr/lib64/libcurl.so.4 /staging/usr/lib64/libcurl.so.4
+COPY --from=ubi-dep /usr/lib64/libffi.so.8 /staging/usr/lib64/libffi.so.8
+COPY --from=ubi-dep /usr/lib64/libgmp.so.10 /staging/usr/lib64/libgmp.so.10
+COPY --from=ubi-dep /usr/lib64/libgnutls.so.30 /staging/usr/lib64/libgnutls.so.30
+COPY --from=ubi-dep /usr/lib64/libgssapi_krb5.so.2 /staging/usr/lib64/libgssapi_krb5.so.2
+COPY --from=ubi-dep /usr/lib64/libpcre.so.1 /staging/usr/lib64/libpcre.so.1
+COPY --from=ubi-dep /usr/lib64/libhogweed.so.6 /staging/usr/lib64/libhogweed.so.6
+COPY --from=ubi-dep /usr/lib64/libidn2.so.0 /staging/usr/lib64/libidn2.so.0
+COPY --from=ubi-dep /usr/lib64/libk5crypto.so.3 /staging/usr/lib64/libk5crypto.so.3
+COPY --from=ubi-dep /usr/lib64/libkeyutils.so.1 /staging/usr/lib64/libkeyutils.so.1
+COPY --from=ubi-dep /usr/lib64/libkrb5.so.3 /staging/usr/lib64/libkrb5.so.3
+COPY --from=ubi-dep /usr/lib64/libkrb5support.so.0 /staging/usr/lib64/libkrb5support.so.0
+COPY --from=ubi-dep /usr/lib64/libnettle.so.8 /staging/usr/lib64/libnettle.so.8
+COPY --from=ubi-dep /usr/lib64/libnghttp2.so.14 /staging/usr/lib64/libnghttp2.so.14
+COPY --from=ubi-dep /usr/lib64/libp11-kit.so.0 /staging/usr/lib64/libp11-kit.so.0
+COPY --from=ubi-dep /usr/lib64/libresolv.so.2 /staging/usr/lib64/libresolv.so.2
+COPY --from=ubi-dep /usr/lib64/libssl.so.3 /staging/usr/lib64/libssl.so.3
+COPY --from=ubi-dep /usr/lib64/libtasn1.so.6 /staging/usr/lib64/libtasn1.so.6
+COPY --from=ubi-dep /usr/lib64/libunistring.so.2 /staging/usr/lib64/libunistring.so.2
+COPY --from=ubi-dep /usr/lib64/libz.so.1 /staging/usr/lib64/libz.so.1
+COPY --from=ubi-dep /usr/lib64/libzstd.so.1 /staging/usr/lib64/libzstd.so.1
+COPY --from=ubi-dep /usr/lib64/libm.so.6 /staging/usr/lib64/libm.so.6
+COPY --from=ubi-dep /usr/lib64/libmpfr.so.6 /staging/usr/lib64/libmpfr.so.6
+COPY --from=ubi-dep /usr/lib64/libreadline.so.8 /staging/usr/lib64/libreadline.so.8
+COPY --from=ubi-dep /usr/lib64/libsigsegv.so.2 /staging/usr/lib64/libsigsegv.so.2
+COPY --from=ubi-dep /usr/lib64/libtinfo.so.6 /staging/usr/lib64/libtinfo.so.6
+COPY --from=ubi-dep /usr/lib64/libprocps.so.8 /staging/usr/lib64/libprocps.so.8
+COPY --from=ubi-dep /usr/lib64/libsystemd.so.0 /staging/usr/lib64/libsystemd.so.0
+COPY --from=ubi-dep /usr/lib64/liblz4.so.1 /staging/usr/lib64/liblz4.so.1
+COPY --from=ubi-dep /usr/lib64/libcap.so.2 /staging/usr/lib64/libcap.so.2
+COPY --from=ubi-dep /usr/lib64/libgcrypt.so.20 /staging/usr/lib64/libgcrypt.so.20
+COPY --from=ubi-dep /usr/lib64/libgpg-error.so.0 /staging/usr/lib64/libgpg-error.so.0
+COPY --from=ubi-dep /usr/lib64/liblzma.so.5 /staging/usr/lib64/liblzma.so.5
+COPY --from=ubi-dep /etc/passwd /staging/etc/passwd
+COPY --from=ubi-dep /etc/group /staging/etc/group
+COPY --from=ubi-dep /etc/shadow /staging/etc/shadow
+
+# Intermediate stage to collect all builder files
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS builder-staging
+COPY --from=builder packaging/iofog-agent/usr /staging/usr
+COPY --from=builder packaging/iofog-agent/etc/systemd/system/iofog-agent.service /staging/etc/systemd/system/iofog-agent.service
+COPY --from=builder packaging/iofog-agent/etc/bash_completion.d /staging/etc/bash_completion.d
+COPY --from=builder packaging/iofog-agent/etc/iofog-agent /staging/etc/iofog-agent
+
 # Final stage using UBI Micro
 FROM registry.access.redhat.com/ubi9/ubi-micro:latest
 
-# Copy dependencies from the ubi-dep stage
-COPY --from=ubi-dep /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=ubi-dep /usr/bin/curl /usr/bin/
-COPY --from=ubi-dep /usr/bin/grep /usr/bin/
-COPY --from=ubi-dep /usr/bin/gzip /usr/bin/
-COPY --from=ubi-dep /usr/bin/pgrep /usr/bin/
-COPY --from=ubi-dep /usr/bin/awk /usr/bin/
-COPY --from=ubi-dep /etc/ssl/certs/ca-bundle.crt /etc/ssl/certs/
-COPY --from=ubi-dep /etc/pki/tls/certs/ca-bundle.crt /etc/pki/tls/certs/
-
-# Copy required shared libraries for curl grep awk
-COPY --from=ubi-dep /usr/lib64/libc.so.6 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libcom_err.so.2 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libcrypto.so.3 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libcurl.so.4 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libffi.so.8 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libgmp.so.10 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libgnutls.so.30 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libgssapi_krb5.so.2 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libpcre.so.1 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libhogweed.so.6 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libidn2.so.0 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libk5crypto.so.3 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libkeyutils.so.1 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libkrb5.so.3 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libkrb5support.so.0 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libnettle.so.8 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libnghttp2.so.14 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libp11-kit.so.0 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libresolv.so.2 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libssl.so.3 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libtasn1.so.6 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libunistring.so.2 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libz.so.1 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libzstd.so.1 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libm.so.6 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libmpfr.so.6 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libreadline.so.8 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libsigsegv.so.2 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libtinfo.so.6 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libprocps.so.8 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libsystemd.so.0 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/liblz4.so.1 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libcap.so.2  /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libgcrypt.so.20  /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/libgpg-error.so.0 /usr/lib64/
-COPY --from=ubi-dep /usr/lib64/liblzma.so.5 /usr/lib64/
-# COPY --from=ubi-dep /usr/lib64/libblkid.so.1 /usr/lib64/
-
-
-# Copy the iofog-agent user and related configurations
-COPY --from=ubi-dep /etc/passwd /etc/passwd
-COPY --from=ubi-dep /etc/group /etc/group
-COPY --from=ubi-dep /etc/shadow /etc/shadow
+# Copy all dependencies from the staging stage in a single layer
+COPY --from=ubi-dep-staging /staging/ /
 
 
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 COPY --from=jre-build /javaruntime $JAVA_HOME
 
-COPY --from=builder packaging/iofog-agent/usr ./usr
-COPY --from=builder packaging/iofog-agent/etc/systemd/system/iofog-agent.service /etc/systemd/system/iofog-agent.service
-COPY --from=builder packaging/iofog-agent/etc/bash_completion.d /etc/bash_completion.d/
-COPY --from=builder packaging/iofog-agent/etc/iofog-agent /etc/iofog-agent/
+# Copy all files from builder staging stage in a single layer
+COPY --from=builder-staging /staging/ /
 
 RUN true && \
     mv /etc/iofog-agent/config_new.xml /etc/iofog-agent/config.xml && \

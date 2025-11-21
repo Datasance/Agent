@@ -334,4 +334,9 @@ public class ExecSessionCallback extends ResultCallbackTemplate<ExecSessionCallb
         LoggingService.logDebug(MODULE_NAME, "Getting stdin pipe: " + (ptyStdinPipe != null));
         return ptyStdinPipe;
     }
+
+    public PipedOutputStream getStdin() {
+        LoggingService.logDebug(MODULE_NAME, "Getting stdin output stream: " + (stdin != null));
+        return (PipedOutputStream) stdin;
+    }
 } 
