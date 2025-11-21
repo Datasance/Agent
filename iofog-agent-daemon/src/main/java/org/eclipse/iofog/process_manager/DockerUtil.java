@@ -1390,24 +1390,20 @@ public class DockerUtil {
         private PipedInputStream ptyStdinPipe;
         private long lastActivityTime;
 
-        public ExecSessionCallback(String execId, long inactivityTimeoutMinutes, PipedInputStream stdinPipe) {
+        public ExecSessionCallback(String execId, long inactivityTimeoutMinutes, 
+                                  PipedInputStream stdinPipe, PipedOutputStream stdinOutputStream) {
             this.execId = execId;
             this.startTime = System.currentTimeMillis();
             this.inactivityTimeoutMinutes = inactivityTimeoutMinutes;
             this.lastActivityTime = startTime;
             
-            // Use the provided pipe instead of creating a new one
+            // Use the provided pipes instead of creating new ones
             this.ptyStdinPipe = stdinPipe;
+            this.ptyStdin = stdinOutputStream;  // Use the provided output stream
             
-            // Create the output stream connected to the input pipe
-            try {
-                this.ptyStdin = new PipedOutputStream(ptyStdinPipe);
-                LoggingService.logDebug(MODULE_NAME, "Created output stream for exec session: " + execId + 
-                    ", ptyStdin=" + (ptyStdin != null) + 
-                    ", ptyStdinPipe=" + (ptyStdinPipe != null));
-            } catch (IOException e) {
-                LoggingService.logError(MODULE_NAME, "Failed to create output stream for exec session: " + execId, e);
-            }
+            LoggingService.logDebug(MODULE_NAME, "Created exec session callback: " + execId + 
+                ", ptyStdin=" + (ptyStdin != null) + 
+                ", ptyStdinPipe=" + (ptyStdinPipe != null));
         }
 
         private void resetInactivityTimer() {
@@ -1450,8 +1446,8 @@ public class DockerUtil {
 
         @Override
         public void close() throws IOException {
-            if (ptyStdinPipe != null) ptyStdinPipe.close();
-            if (ptyStdin != null) ptyStdin.close();
+            // Don't close pipes we don't own - ProcessManager owns them
+            // Only call super.close() to clean up the callback itself
             super.close();
         }
 
