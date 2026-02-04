@@ -178,10 +178,7 @@ COPY --from=jre-build /javaruntime $JAVA_HOME
 COPY --from=builder-staging /staging/ /
 
 RUN true && \
-    mv /etc/iofog-agent/config_new.xml /etc/iofog-agent/config.xml && \
-    mv /etc/iofog-agent/config-development_new.xml /etc/iofog-agent/config-development.xml && \
-    mv /etc/iofog-agent/config-production_new.xml /etc/iofog-agent/config-production.xml && \
-    mv /etc/iofog-agent/config-switcher_new.xml /etc/iofog-agent/config-switcher.xml && \
+    mv /etc/iofog-agent/config_new.yaml /etc/iofog-agent/config.yaml && \
     mv /etc/iofog-agent/cert_new.crt /etc/iofog-agent/cert.crt && \
     # </dev/urandom tr -dc A-Za-z0-9 | head -c32 > /etc/iofog-agent/local-api && \
     mkdir -p /var/backups/iofog-agent && \

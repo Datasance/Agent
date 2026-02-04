@@ -195,8 +195,8 @@ public class ConfigurationTest {
             assertEquals(10, Configuration.getPostDiagnosticsFreq());
             Configuration.setPostDiagnosticsFreq(60);
             assertEquals(60, Configuration.getPostDiagnosticsFreq());
-            Configuration.setFogType(ArchitectureType.ARM);
-            assertEquals(ArchitectureType.ARM, Configuration.getFogType());
+            Configuration.setArch(ArchitectureType.ARM);
+            assertEquals(ArchitectureType.ARM, Configuration.getArch());
             assertEquals(false, Configuration.isSecureMode());
             Configuration.setSecureMode(false);
             assertEquals( false, Configuration.isSecureMode());
@@ -235,7 +235,7 @@ public class ConfigurationTest {
             initializeConfiguration();
             Set<String> config = new HashSet<>();
             config.add("ll");
-            HashMap<String, String> oldValuesMap = Configuration.getOldNodeValuesForParameters(config, Configuration.getCurrentConfig());
+            HashMap<String, String> oldValuesMap = Configuration.getOldNodeValuesForParameters(config);
             for (HashMap.Entry element : oldValuesMap.entrySet()) {
                 assertEquals( Configuration.getLogLevel(), element.getValue());
             }
@@ -284,8 +284,8 @@ public class ConfigurationTest {
             assertEquals(GpsMode.DYNAMIC, Configuration.getGpsMode());
             Configuration.setPostDiagnosticsFreq(60);
             assertEquals(60, Configuration.getPostDiagnosticsFreq());
-            Configuration.setFogType(ArchitectureType.ARM);
-            assertEquals(ArchitectureType.ARM, Configuration.getFogType());
+            Configuration.setArch(ArchitectureType.ARM);
+            assertEquals(ArchitectureType.ARM, Configuration.getArch());
             Configuration.setSecureMode(false);
             Assertions.assertFalse(Configuration.isSecureMode());
             Configuration.setIpAddressExternal("ipExternal");
@@ -1351,10 +1351,10 @@ public class ConfigurationTest {
     }
 
     /**
-     * Test setConfig when FOG_TYPE with invalid value
+     * Test setConfig when ARCH with invalid value
      */
     @Test
-    public void testSetConfigForFogTypeWithInValidValue() {
+    public void testSetConfigForArchWithInValidValue() {
         try {
             String value = "value";
             initializeConfiguration();
@@ -1372,10 +1372,10 @@ public class ConfigurationTest {
     }
 
     /**
-     * Test setConfig when FOG_TYPE with valid value
+     * Test setConfig when ARCH with valid value
      */
     @Test
-    public void testSetConfigForFogTypeWithValidValue() {
+    public void testSetConfigForArchWithValidValue() {
         try {
             String value = "auto";
             initializeConfiguration();

@@ -62,7 +62,7 @@ public class CommandLineConfigParamTest {
         assertEquals("gps", commandLineConfigParam.GPS_MODE.getCommandName());
         assertEquals("", commandLineConfigParam.GPS_COORDINATES.getCommandName());
         assertEquals("df", commandLineConfigParam.POST_DIAGNOSTICS_FREQ.getCommandName());
-        assertEquals("ft", commandLineConfigParam.FOG_TYPE.getCommandName());
+        assertEquals("ft", commandLineConfigParam.ARCH.getCommandName());
         assertEquals("dev", commandLineConfigParam.DEV_MODE.getCommandName());
         assertEquals("pf", commandLineConfigParam.DOCKER_PRUNING_FREQUENCY.getCommandName());
         assertEquals("dt", commandLineConfigParam.AVAILABLE_DISK_THRESHOLD.getCommandName());
@@ -92,7 +92,7 @@ public class CommandLineConfigParamTest {
         assertEquals("gps", commandLineConfigParam.GPS_MODE.getXmlTag());
         assertEquals("gps_coordinates", commandLineConfigParam.GPS_COORDINATES.getXmlTag());
         assertEquals("post_diagnostics_freq", commandLineConfigParam.POST_DIAGNOSTICS_FREQ.getXmlTag());
-        assertEquals("fog_type", commandLineConfigParam.FOG_TYPE.getXmlTag());
+        assertEquals("arch", commandLineConfigParam.ARCH.getXmlTag());
         assertEquals("dev_mode", commandLineConfigParam.DEV_MODE.getXmlTag());
         assertEquals("docker_pruning_freq", commandLineConfigParam.DOCKER_PRUNING_FREQUENCY.getXmlTag());
         assertEquals("available_disk_threshold", commandLineConfigParam.AVAILABLE_DISK_THRESHOLD.getXmlTag());
@@ -125,7 +125,7 @@ public class CommandLineConfigParamTest {
         assertEquals("edgeGuardFrequency", commandLineConfigParam.EDGE_GUARD_FREQUENCY.getJsonProperty());
         assertEquals("gpscoordinates", commandLineConfigParam.GPS_COORDINATES.getJsonProperty());
         assertEquals("postdiagnosticsfreq", commandLineConfigParam.POST_DIAGNOSTICS_FREQ.getJsonProperty());
-        assertEquals("", commandLineConfigParam.FOG_TYPE.getJsonProperty());
+        assertEquals("", commandLineConfigParam.ARCH.getJsonProperty());
         assertEquals("", commandLineConfigParam.DEV_MODE.getJsonProperty());
         assertEquals("dockerPruningFrequency", commandLineConfigParam.DOCKER_PRUNING_FREQUENCY.getJsonProperty());
         assertEquals("availableDiskThreshold", commandLineConfigParam.AVAILABLE_DISK_THRESHOLD.getJsonProperty());
@@ -158,7 +158,7 @@ public class CommandLineConfigParamTest {
         assertEquals("0", commandLineConfigParam.EDGE_GUARD_FREQUENCY.getDefaultValue());
         assertEquals("", commandLineConfigParam.GPS_COORDINATES.getDefaultValue());
         assertEquals("10", commandLineConfigParam.POST_DIAGNOSTICS_FREQ.getDefaultValue());
-        assertEquals("auto", commandLineConfigParam.FOG_TYPE.getDefaultValue());
+        assertEquals("auto", commandLineConfigParam.ARCH.getDefaultValue());
         assertEquals("off", commandLineConfigParam.SECURE_MODE.getDefaultValue());
         assertEquals("1", commandLineConfigParam.DOCKER_PRUNING_FREQUENCY.getDefaultValue());
         assertEquals("20", commandLineConfigParam.AVAILABLE_DISK_THRESHOLD.getDefaultValue());
@@ -192,7 +192,7 @@ public class CommandLineConfigParamTest {
         assertEquals("-egf", commandLineConfigParam.EDGE_GUARD_FREQUENCY.getCmdText());
         assertEquals("-", commandLineConfigParam.GPS_COORDINATES.getCmdText());
         assertEquals("-df", commandLineConfigParam.POST_DIAGNOSTICS_FREQ.getCmdText());
-        assertEquals("-ft", commandLineConfigParam.FOG_TYPE.getCmdText());
+        assertEquals("-ft", commandLineConfigParam.ARCH.getCmdText());
         assertEquals("-dev", commandLineConfigParam.DEV_MODE.getCmdText());
         assertEquals("-pf", commandLineConfigParam.DOCKER_PRUNING_FREQUENCY.getCmdText());
         assertEquals("-dt", commandLineConfigParam.AVAILABLE_DISK_THRESHOLD.getCmdText());

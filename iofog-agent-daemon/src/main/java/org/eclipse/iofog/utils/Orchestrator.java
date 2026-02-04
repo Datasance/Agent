@@ -66,6 +66,11 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.eclipse.iofog.utils.logging.LoggingService.*;
 
@@ -75,7 +80,14 @@ import static org.eclipse.iofog.utils.logging.LoggingService.*;
  * @author saeid
  */
 public class Orchestrator {
-    private static final int CONNECTION_TIMEOUT = 10000;
+    private static final int CONNECTION_TIMEOUT = 10000; // 10 seconds
+    // Socket timeout (read timeout) set to 5 minutes - less than JWT expiry of 10 minutes
+    // This prevents requests from hanging long enough for JWT tokens to expire
+    private static final int SOCKET_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+    // Request-level timeout covers DNS resolution, connection, and read phases
+    private static final int REQUEST_TIMEOUT_SECONDS = 5 * 60; // 5 minutes (same as socket timeout)
+    private static final ExecutorService executorService = Executors.newCachedThreadPool();
+    
     private String controllerUrl;
     private String iofogUuid;
     // private String iofogAccessToken;
@@ -120,7 +132,7 @@ public class Orchestrator {
 			JsonObject result;
 			JsonObject json = Json.createObjectBuilder()
 			        .add("key", key)
-			        .add("type", Configuration.getFogType().getCode())
+			        .add("type", Configuration.getArch().getCode())
 			        .build();
 
 			result = request("provision", RequestType.POST, null, json);
@@ -137,6 +149,8 @@ public class Orchestrator {
         return RequestConfig.copy(RequestConfig.DEFAULT)
                 .setLocalAddress(IOFogNetworkInterfaceManager.getInstance().getInetAddress())
                 .setConnectTimeout(CONNECTION_TIMEOUT)
+                .setSocketTimeout(SOCKET_TIMEOUT)  // Read timeout - prevents requests from hanging indefinitely
+                .setConnectionRequestTimeout(CONNECTION_TIMEOUT)  // Timeout for getting connection from pool
                 .build();
     }
 
@@ -185,14 +199,65 @@ public class Orchestrator {
     }
 
     /**
-     * gets Json result of a IOFog Controller endpoint
+     * gets Json result of a IOFog Controller endpoint with request-level timeout protection
+     * This wraps the actual request in a Future with timeout to prevent hanging on DNS resolution,
+     * connection establishment, or response reading.
      *
-     * @param surl - endpoind to be called
+     * @param surl - endpoint to be called
      * @return result in Json format
-     * @throws AgentSystemException 
+     * @throws AgentUserException 
      */
-    private JsonObject getJSON(String surl) throws AgentUserException  {
-    	logDebug(MODULE_NAME, "Start getJSON for result of a IOFog Controller endpoint");
+    private JsonObject getJSON(String surl) throws AgentUserException {
+        return getJSONWithTimeout(surl);
+    }
+
+    /**
+     * Internal method that wraps getJSONInternal in a Future with timeout protection
+     *
+     * @param surl - endpoint to be called
+     * @return result in Json format
+     * @throws AgentUserException
+     */
+    private JsonObject getJSONWithTimeout(String surl) throws AgentUserException {
+        logDebug(MODULE_NAME, "Start getJSONWithTimeout for result of a IOFog Controller endpoint");
+        
+        Future<JsonObject> future = executorService.submit(() -> {
+            return getJSONInternal(surl);
+        });
+        
+        try {
+            // Wait for the request with a total timeout that includes DNS resolution, connection, and read
+            return future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            logError(MODULE_NAME, "Request timeout after " + REQUEST_TIMEOUT_SECONDS + " seconds", 
+                    new AgentSystemException("Request timeout: " + surl, e));
+            throw new AgentUserException("Request timeout after " + REQUEST_TIMEOUT_SECONDS + " seconds: " + surl, e);
+        } catch (java.util.concurrent.ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof AgentUserException) {
+                throw (AgentUserException) cause;
+            } else if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            } else {
+                throw new AgentUserException("Error executing request: " + surl, cause);
+            }
+        } catch (InterruptedException e) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new AgentUserException("Request interrupted: " + surl, e);
+        }
+    }
+
+    /**
+     * Internal method that performs the actual HTTP request
+     *
+     * @param surl - endpoint to be called
+     * @return result in Json format
+     * @throws AgentUserException 
+     */
+    private JsonObject getJSONInternal(String surl) throws AgentUserException  {
+    	logDebug(MODULE_NAME, "Start getJSONInternal for result of a IOFog Controller endpoint");
         // disable certificates for secure mode
         boolean secure = true;
         if (!surl.toLowerCase().startsWith("https")) {
@@ -316,8 +381,67 @@ public class Orchestrator {
 
 
     private JsonObject getJsonObject(Map<String, Object> queryParams, RequestType requestType, HttpEntity httpEntity, StringBuilder uri) throws Exception {
+        return getJsonObjectWithTimeout(queryParams, requestType, httpEntity, uri);
+    }
+
+    /**
+     * Internal method that wraps getJsonObjectInternal in a Future with timeout protection
+     *
+     * @param queryParams - query parameters
+     * @param requestType - HTTP request type
+     * @param httpEntity - HTTP entity (body)
+     * @param uri - request URI
+     * @return result in Json format
+     * @throws Exception
+     */
+    private JsonObject getJsonObjectWithTimeout(Map<String, Object> queryParams, RequestType requestType, HttpEntity httpEntity, StringBuilder uri) throws Exception {
+        logDebug(MODULE_NAME, "Start getJsonObjectWithTimeout");
+        
+        // Create a final copy of the URI for use in the Future
+        final StringBuilder finalUri = new StringBuilder(uri.toString());
+        final Map<String, Object> finalQueryParams = queryParams;
+        final RequestType finalRequestType = requestType;
+        final HttpEntity finalHttpEntity = httpEntity;
+        
+        Future<JsonObject> future = executorService.submit(() -> {
+            return getJsonObjectInternal(finalQueryParams, finalRequestType, finalHttpEntity, finalUri);
+        });
+        
+        try {
+            // Wait for the request with a total timeout that includes DNS resolution, connection, and read
+            return future.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            logError(MODULE_NAME, "Request timeout after " + REQUEST_TIMEOUT_SECONDS + " seconds", 
+                    new AgentSystemException("Request timeout: " + finalUri.toString(), e));
+            throw new AgentSystemException("Request timeout after " + REQUEST_TIMEOUT_SECONDS + " seconds: " + finalUri.toString(), e);
+        } catch (java.util.concurrent.ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof Exception) {
+                throw (Exception) cause;
+            } else {
+                throw new AgentSystemException("Error executing request: " + finalUri.toString(), cause);
+            }
+        } catch (InterruptedException e) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new AgentSystemException("Request interrupted: " + finalUri.toString(), e);
+        }
+    }
+
+    /**
+     * Internal method that performs the actual HTTP request
+     *
+     * @param queryParams - query parameters
+     * @param requestType - HTTP request type
+     * @param httpEntity - HTTP entity (body)
+     * @param uri - request URI
+     * @return result in Json format
+     * @throws Exception
+     */
+    private JsonObject getJsonObjectInternal(Map<String, Object> queryParams, RequestType requestType, HttpEntity httpEntity, StringBuilder uri) throws Exception {
         // disable certificates for secure mode
-    	logDebug(MODULE_NAME, "Start get JsonObject");
+    	logDebug(MODULE_NAME, "Start get JsonObjectInternal");
         boolean secure = true;
         if (!controllerUrl.toLowerCase().startsWith("https")) {
             if (Configuration.isSecureMode())
@@ -398,6 +522,7 @@ public class Orchestrator {
                 case 400:
                     throw new BadRequestException(errorMessage);
                 case 401:
+                    // TODO: Add retry logic with fresh token
                     FieldAgent.getInstance().deProvision(true);
                     logWarning(MODULE_NAME, "Invalid JWT token, switching controller status to Not provisioned");
                     throw new AuthenticationException(errorMessage);

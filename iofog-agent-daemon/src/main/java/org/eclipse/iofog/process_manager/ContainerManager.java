@@ -17,6 +17,7 @@ import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.model.Container;
 import com.github.dockerjava.api.model.Image;
 import org.eclipse.iofog.microservice.*;
+import org.eclipse.iofog.volume_mount.VolumeMountManager;
 import org.eclipse.iofog.exception.AgentSystemException;
 import org.eclipse.iofog.network.IOFogNetworkInterfaceManager;
 import org.eclipse.iofog.status_reporter.StatusReporter;
@@ -235,6 +236,13 @@ public class ContainerManager {
 				removeContainer(container.getId(), container.getImageId(), withCleanUp);
 				setMicroserviceStatus(microserviceUuid, MicroserviceState.DELETED);
 			}
+		}
+		// Clean up per-microservice volume mounts
+		try {
+			VolumeMountManager.getInstance().cleanupMicroserviceVolumes(microserviceUuid);
+		} catch (Exception e) {
+			LoggingService.logWarning(MODULE_NAME, "Error cleaning up microservice volumes: " + e.getMessage());
+			// Continue with container removal even if cleanup fails
 		}
 		LoggingService.logInfo(MODULE_NAME, "Finished remove container with microserviceuuid : " + microserviceUuid);
 	}

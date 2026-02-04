@@ -58,7 +58,7 @@ public class GpsManager implements IOFogModule {
     }
 
     /**
-     * Start GPS module in AUTO mode by default
+     * Start GPS module based on configured mode
      */
     public void start() {
         if (isRunning) {
@@ -68,14 +68,27 @@ public class GpsManager implements IOFogModule {
         try {
             LoggingService.logInfo(MODULE_NAME, "Starting GPS Manager");
             
-            // Initialize in AUTO mode by default
-            initializeAutoMode();
-            
-            // Start coordinate update scheduler
+            // Start coordinate update scheduler first (non-blocking)
             startCoordinateUpdateScheduler();
             
+            // Mark as running immediately to avoid blocking startup
             isRunning = true;
             LoggingService.logInfo(MODULE_NAME, "GPS Manager started successfully");
+            
+            // Initialize GPS coordinates asynchronously to avoid blocking startup
+            // This prevents DNS resolution hangs from blocking the main thread
+            // Initialize based on configured mode, not always AUTO
+            scheduler.execute(() -> {
+                try {
+                    LoggingService.logDebug(MODULE_NAME, "Initializing GPS coordinates in background");
+                    initializeGps();
+                    LoggingService.logDebug(MODULE_NAME, "GPS coordinates initialization completed");
+                } catch (Exception e) {
+                    LoggingService.logError(MODULE_NAME, "Error initializing GPS in background", e);
+                    status.setHealthStatus(GpsStatus.GpsHealthStatus.IP_ERROR);
+                    startOffMode();
+                }
+            });
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error starting GPS Manager", e);
             stop();
@@ -141,6 +154,9 @@ public class GpsManager implements IOFogModule {
                 startOffMode();
             }
             
+            // Update scheduler frequency (handles changes from 0 to positive or vice versa)
+            changeGpsScanFrequencyInterval();
+            
             LoggingService.logDebug(MODULE_NAME, "GPS configuration update completed");
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error handling GPS configuration update", e);
@@ -152,6 +168,40 @@ public class GpsManager implements IOFogModule {
      */
     public GpsStatus getStatus() {
         return status;
+    }
+
+    /**
+     * Initialize GPS based on configured mode
+     * This method respects the configured mode and doesn't overwrite manual coordinates
+     */
+    private void initializeGps() {
+        try {
+            GpsMode currentMode = Configuration.getGpsMode();
+            String gpsDevice = Configuration.getGpsDevice();
+            
+            LoggingService.logDebug(MODULE_NAME, "Initializing GPS in mode: " + currentMode);
+            
+            // Handle mode initialization based on configured mode
+            if (currentMode == GpsMode.DYNAMIC && gpsDevice != null && !gpsDevice.isEmpty()) {
+                startDynamicMode();
+            } else if (currentMode == GpsMode.AUTO) {
+                initializeAutoMode();
+            } else if (currentMode == GpsMode.DYNAMIC && (gpsDevice == null || gpsDevice.isEmpty())) {
+                startManualMode();
+            } else if (currentMode == GpsMode.MANUAL) {
+                startManualMode();
+            } else if (currentMode == GpsMode.OFF) {
+                startOffMode();
+            } else {
+                // Default to AUTO if mode is not set or invalid
+                LoggingService.logWarning(MODULE_NAME, "GPS mode not configured, defaulting to AUTO");
+                initializeAutoMode();
+            }
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error initializing GPS", e);
+            status.setHealthStatus(GpsStatus.GpsHealthStatus.IP_ERROR);
+            startOffMode();
+        }
     }
 
     /**
@@ -290,13 +340,18 @@ public class GpsManager implements IOFogModule {
     private void startCoordinateUpdateScheduler() {
         try {
             long scanFrequency = Configuration.getGpsScanFrequency();
-            coordinateUpdateTask = scheduler.scheduleAtFixedRate(
-                this::updateCoordinates,
-                0,
-                scanFrequency,
-                TimeUnit.SECONDS
-            );
-            LoggingService.logDebug(MODULE_NAME, "Started coordinate update scheduler with frequency: " + scanFrequency + " seconds");
+            // Only schedule if frequency is positive (like DockerPruningManager)
+            if (scanFrequency > 0) {
+                coordinateUpdateTask = scheduler.scheduleAtFixedRate(
+                    this::updateCoordinates,
+                    0,
+                    scanFrequency,
+                    TimeUnit.SECONDS
+                );
+                LoggingService.logDebug(MODULE_NAME, "Started coordinate update scheduler with frequency: " + scanFrequency + " seconds");
+            } else {
+                LoggingService.logDebug(MODULE_NAME, "GPS scan frequency is 0 - coordinate update scheduler not started");
+            }
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error starting coordinate update scheduler", e);
         }
@@ -373,6 +428,32 @@ public class GpsManager implements IOFogModule {
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error updating AUTO coordinates", e);
             status.setHealthStatus(GpsStatus.GpsHealthStatus.IP_ERROR);
+        }
+    }
+
+    /**
+     * Update GPS scan frequency interval
+     * This method will reschedule the coordinate update scheduler with the new frequency
+     * Similar to DockerPruningManager.changePruningFreqInterval()
+     */
+    public void changeGpsScanFrequencyInterval() {
+        // Cancel existing task if running
+        if (coordinateUpdateTask != null) {
+            coordinateUpdateTask.cancel(true);
+            coordinateUpdateTask = null;
+        }
+        
+        long scanFrequency = Configuration.getGpsScanFrequency();
+        if (scanFrequency > 0) {
+            coordinateUpdateTask = scheduler.scheduleAtFixedRate(
+                this::updateCoordinates,
+                0,
+                scanFrequency,
+                TimeUnit.SECONDS
+            );
+            LoggingService.logInfo(MODULE_NAME, "GPS scan frequency updated to: " + scanFrequency + " seconds");
+        } else {
+            LoggingService.logInfo(MODULE_NAME, "GPS scan frequency set to 0 - coordinate update scheduler disabled");
         }
     }
 

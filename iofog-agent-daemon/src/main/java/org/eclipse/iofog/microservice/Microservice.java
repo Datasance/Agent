@@ -59,6 +59,7 @@ public class Microservice {
     private boolean deleteWithCleanup;
     private boolean isStuckInRestart;
     private Healthcheck healthcheck;
+    private ServiceAccount serviceAccount;
 
     public Microservice(String microserviceUuid, String imageName) {
         this.microserviceUuid = microserviceUuid;
@@ -346,5 +347,13 @@ public class Microservice {
     public void setMemoryLimit(Long memoryLimitMB) {
         // Convert MB to bytes (1 MB = 1024 * 1024 bytes)
         this.memoryLimit = memoryLimitMB != null ? memoryLimitMB * 1024 * 1024 : null;
+    }
+
+    public ServiceAccount getServiceAccount() {
+        return serviceAccount;
+    }
+
+    public void setServiceAccount(ServiceAccount serviceAccount) {
+        this.serviceAccount = serviceAccount;
     }
 }

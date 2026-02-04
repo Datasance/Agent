@@ -172,6 +172,8 @@ public class Daemon {
     }
 
     public static void main(String[] args) throws ParseException {
+        // Set LogManager system property FIRST, before any other code
+        System.setProperty("java.util.logging.manager", "org.jboss.logmanager.LogManager");
 
         try {
             Configuration.load();

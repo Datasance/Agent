@@ -178,7 +178,7 @@ public class OrchestratorTest {
         Mockito.when(MultipartEntityBuilder.create()).thenReturn(multipartEntityBuilder);
         Mockito.when(multipartEntityBuilder.build()).thenReturn(httpEntity);
         Mockito.when(Configuration.getIofogUuid()).thenReturn("iofog-uuid");
-        Mockito.when(Configuration.getFogType()).thenReturn(ArchitectureType.ARM);
+        Mockito.when(Configuration.getArch()).thenReturn(ArchitectureType.ARM);
         // Mockito.when(Configuration.getAccessToken()).thenReturn("access-token");
         Mockito.when(Configuration.getPrivateKey()).thenReturn("privateKey");
         Mockito.when(Configuration.getControllerUrl()).thenReturn("http://controller/");

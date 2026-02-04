@@ -255,8 +255,7 @@ public enum CommandLineAction {
 
 			try {
 
-				HashMap<String, String> oldValuesMap = getOldNodeValuesForParameters(config.keySet(),
-						Configuration.getCurrentConfig());
+				HashMap<String, String> oldValuesMap = Configuration.getOldNodeValuesForParameters(config.keySet());
 				HashMap<String, String> errorMap = setConfig(config, false);
 
 				for (Map.Entry<String, String> e : errorMap.entrySet())
