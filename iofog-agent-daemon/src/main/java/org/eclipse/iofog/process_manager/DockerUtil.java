@@ -875,7 +875,7 @@ public class DockerUtil {
             logFiles = (int) (microservice.getLogSize() / 2);
 
         containerLogConfig.put("max-file", String.valueOf(logFiles));
-        containerLogConfig.put("max-size", "2m");
+        containerLogConfig.put("max-size", "100m");
         LogConfig containerLog = new LogConfig(LogConfig.LoggingType.DEFAULT, containerLogConfig);
 
         List<String> envVars = new ArrayList<>(Arrays.asList("SELFNAME=" + microservice.getMicroserviceUuid()));
