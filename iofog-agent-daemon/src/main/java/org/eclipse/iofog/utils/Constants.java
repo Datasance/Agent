@@ -96,14 +96,8 @@ public class Constants {
     private static final String CONFIG_DIR = SystemUtils.IS_OS_WINDOWS ?
             WINDOWS_IOFOG_PATH : SNAP_COMMON + "/etc/iofog-agent/";
     public static final String LOCAL_API_TOKEN_PATH = CONFIG_DIR + "local-api";
-    public static final String DEFAULT_CONFIG_PATH = CONFIG_DIR + "config.xml";
-    public static final String DEVELOPMENT_CONFIG_PATH = CONFIG_DIR + "config-development.xml";
-    public static final String PRODUCTION_CONFIG_PATH = CONFIG_DIR + "config-production.xml";
-    public static String BACKUP_CONFIG_PATH = CONFIG_DIR + "config-bck.xml";
-
-    public static final String CONFIG_SWITCHER_PATH = CONFIG_DIR + "config-switcher.xml";
-    public static final String SWITCHER_ELEMENT = "switcher";
-    public static final String SWITCHER_NODE = "current_config";
+    public static final String CONFIG_YAML_PATH = CONFIG_DIR + "config.yaml";
+    public static final String BACKUP_CONFIG_YAML_PATH = CONFIG_DIR + "config-bck.yaml";
     public static final String OS_GROUP = "iofog-agent";
     public static final String IOFOG_DOCKER_CONTAINER_NAME_PREFIX = "iofog_";
 

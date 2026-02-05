@@ -32,21 +32,13 @@ import org.eclipse.iofog.utils.device_info.ArchitectureType;
 import org.eclipse.iofog.utils.functional.Pair;
 import org.eclipse.iofog.utils.logging.LoggingService;
 import org.eclipse.iofog.gps.GpsManager;
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-import org.xml.sax.SAXException;
-
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.OutputKeys;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.representer.Representer;
+import org.yaml.snakeyaml.nodes.Tag;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -77,10 +69,7 @@ public final class Configuration {
 
     private static final String MODULE_NAME = "Configuration";
 
-    private static Element configElement;
-    private static Document configFile;
-    private static Element configSwitcherElement;
-    private static Document configSwitcherFile;
+    private static YamlConfig yamlConfig;
     private static ConfigSwitcherState currentSwitcherState;
     //Directly configurable params
     // private static String accessToken;
@@ -109,7 +98,7 @@ public final class Configuration {
     private static long gpsScanFrequency;
     private static String gpsCoordinates;
     private static GpsMode gpsMode;
-    private static ArchitectureType fogType;
+    private static ArchitectureType arch;
     private static final Map<String, Object> defaultConfig;
     private static boolean secureMode;
     private static String ipAddressExternal;
@@ -117,7 +106,7 @@ public final class Configuration {
     private static long availableDiskThreshold;
     private static int readyToUpgradeScanFrequency;
     private static String timeZone;
-
+    private static String namespace;
 
     public static boolean debugging = false;
 
@@ -182,7 +171,7 @@ public final class Configuration {
 
     private static void updateAutomaticConfigParams() {
     	LoggingService.logInfo(MODULE_NAME, "Start update Automatic ConfigParams ");
-        switch (fogType) {
+        switch (arch) {
             case ARM:
                 statusReportFreqSeconds = 5; //
                 pingControllerFreqSeconds = 30;
@@ -278,7 +267,7 @@ public final class Configuration {
     public static void setHwSignature(String hwSignature) {
         Configuration.hwSignature = hwSignature;
         try {
-            setNode(HW_SIGNATURE, hwSignature, configFile, configElement);
+            setNode(HW_SIGNATURE, hwSignature);
         } catch (ConfigurationItemException e) {
             LoggingService.logError(MODULE_NAME, "Failed to set hardware signature in config", e);
         }
@@ -287,7 +276,7 @@ public final class Configuration {
     public static void clearHwSignature() {
         Configuration.hwSignature = null;
         try {
-            setNode(HW_SIGNATURE, null, configFile, configElement);
+            setNode(HW_SIGNATURE, null);
         } catch (ConfigurationItemException e) {
             LoggingService.logError(MODULE_NAME, "Failed to clear hardware signature in config", e);
         }
@@ -366,12 +355,12 @@ public final class Configuration {
         Configuration.postDiagnosticsFreq = postDiagnosticsFreq;
     }
 
-    public static ArchitectureType getFogType() {
-        return fogType;
+    public static ArchitectureType getArch() {
+        return arch;
     }
 
-    public static void setFogType(ArchitectureType fogType) {
-        Configuration.fogType = fogType;
+    public static void setArch(ArchitectureType arch) {
+        Configuration.arch = arch;
     }
 
     public static boolean isSecureMode() {
@@ -383,76 +372,85 @@ public final class Configuration {
     }
 
     /**
-     * return XML node value
-     *
-     * @param param - node name
-     * @return node value
-     * @throws ConfigurationItemException
+     * Converts snake_case (XML tag format) to camelCase (YAML property format)
+     * 
+     * @param snakeCase - snake_case string
+     * @return camelCase string
      */
-    private static String getNode(CommandLineConfigParam param, Document document) {
+    private static String snakeToCamel(String snakeCase) {
+        if (snakeCase == null || !snakeCase.contains("_")) {
+            return snakeCase;
+        }
+        String[] parts = snakeCase.split("_");
+        StringBuilder camelCase = new StringBuilder(parts[0]);
+        for (int i = 1; i < parts.length; i++) {
+            if (parts[i].length() > 0) {
+                camelCase.append(Character.toUpperCase(parts[i].charAt(0)));
+                if (parts[i].length() > 1) {
+                    camelCase.append(parts[i].substring(1));
+                }
+            }
+        }
+        return camelCase.toString();
+    }
 
-        Supplier<String> nodeReader = () -> {
+    /**
+     * return YAML config value
+     *
+     * @param param - config parameter
+     * @return config value
+     */
+    private static String getNode(CommandLineConfigParam param) {
+        Supplier<String> valueReader = () -> {
             String res = null;
             try {
-                res = getFirstNodeByTagName(param.getXmlTag(), document).getTextContent();
-            } catch (ConfigurationItemException e) {
-            	 LoggingService.logError(MODULE_NAME, "Error getting node", e);
-                 System.out.println("[" + MODULE_NAME + "] <" + param.getXmlTag() + "> "
-                         + " item not found or defined more than once. Default value - " + param.getDefaultValue() + " will be used");
-             
-            }catch (Exception e) {
-                LoggingService.logError(MODULE_NAME, "Error getting node", e);
+                if (yamlConfig == null || yamlConfig.getCurrentProfile() == null) {
+                    return param.getDefaultValue();
+                }
+                ProfileConfig currentProfile = yamlConfig.getProfile(yamlConfig.getCurrentProfile());
+                if (currentProfile == null) {
+                    return param.getDefaultValue();
+                }
+                // Convert XML tag (snake_case) to YAML property (camelCase)
+                String yamlKey = snakeToCamel(param.getXmlTag());
+                res = currentProfile.getProperty(yamlKey);
+                if (res == null || res.isEmpty()) {
+                    res = param.getDefaultValue();
+                }
+            } catch (Exception e) {
+                LoggingService.logError(MODULE_NAME, "Error getting config value", e);
                 System.out.println("[" + MODULE_NAME + "] <" + param.getXmlTag() + "> "
-                        + " item not found or defined more than once. Default value - " + param.getDefaultValue() + " will be used");
+                        + " item not found. Default value - " + param.getDefaultValue() + " will be used");
             }
             return res;
         };
-        return Optional.ofNullable(nodeReader.get()).
+        return Optional.ofNullable(valueReader.get()).
                 orElseGet(param::getDefaultValue);
     }
 
     /**
-     * sets XML node value
+     * sets YAML config value
      *
-     * @param param   - node param
-     * @param content - node value
+     * @param param   - config param
+     * @param content - config value
      * @throws ConfigurationItemException
      */
-    private static void setNode(CommandLineConfigParam param, String content, Document document, Element node) throws ConfigurationItemException {
-    	LoggingService.logDebug(MODULE_NAME, "Start Setting node : " + param.getCommandName());
-    	createNodeIfNotExists(param.getXmlTag(), document, node);
-        getFirstNodeByTagName(param.getXmlTag(), document).setTextContent(content);
-        LoggingService.logDebug(MODULE_NAME, "Finished Setting node : " + param.getCommandName());
-    }
-
-    private static void createNodeIfNotExists(String name, Document document, Element node) {
-    	LoggingService.logDebug(MODULE_NAME, "Start create Node IfNotExists : " + name);
-        NodeList nodes = node.getElementsByTagName(name);
-        if (nodes.getLength() == 0) {
-            node.appendChild(document.createElement(name));
+    private static void setNode(CommandLineConfigParam param, String content) throws ConfigurationItemException {
+    	LoggingService.logDebug(MODULE_NAME, "Start Setting config value : " + param.getCommandName());
+        if (yamlConfig == null || yamlConfig.getCurrentProfile() == null) {
+            throw new ConfigurationItemException("Configuration not loaded");
         }
-        LoggingService.logDebug(MODULE_NAME, "Finished create Node IfNotExists : " + name);
-    }
-
-    /**
-     * return first XML node from list of nodes found based on provided tag name
-     *
-     * @param name - node name
-     * @return Node object
-     * @throws ConfigurationItemException
-     */
-    private static Node getFirstNodeByTagName(String name, Document document) throws ConfigurationItemException {
-    	LoggingService.logDebug(MODULE_NAME, "Start get First Node By TagName : " + name);
-        NodeList nodes = document.getElementsByTagName(name);
-
-        if (nodes.getLength() != 1) {
-            throw new ConfigurationItemException("<" + name + "> item not found or defined more than once");
+        ProfileConfig currentProfile = yamlConfig.getProfile(yamlConfig.getCurrentProfile());
+        if (currentProfile == null) {
+            throw new ConfigurationItemException("Current profile not found: " + yamlConfig.getCurrentProfile());
         }
-        LoggingService.logDebug(MODULE_NAME, "Finished get First Node By TagName : " + name);
-        return nodes.item(0);
+        // Convert XML tag (snake_case) to YAML property (camelCase)
+        String yamlKey = snakeToCamel(param.getXmlTag());
+        currentProfile.setProperty(yamlKey, content);
+        LoggingService.logDebug(MODULE_NAME, "Finished Setting config value : " + param.getCommandName());
     }
 
-    public static HashMap<String, String> getOldNodeValuesForParameters(Set<String> parameters, Document document) throws ConfigurationItemException {
+    public static HashMap<String, String> getOldNodeValuesForParameters(Set<String> parameters) throws ConfigurationItemException {
 
     	LoggingService.logDebug(MODULE_NAME, "Start get Old Node Values For Parameters : ");
     	
@@ -461,7 +459,7 @@ public final class Configuration {
         for (String option : parameters) {
             CommandLineConfigParam cmdOption = getCommandByName(option)
                     .orElseThrow(() -> new ConfigurationItemException("Invalid parameter -" + option));
-            result.put(cmdOption.getCommandName(), getNode(cmdOption, document));
+            result.put(cmdOption.getCommandName(), getNode(cmdOption));
         }
 
         LoggingService.logDebug(MODULE_NAME, "Finished get Old Node Values For Parameters : ");
@@ -486,7 +484,7 @@ public final class Configuration {
         EdgeGuardManager.getInstance().changeEdgeGuardFreqInterval();
 //        LoggingService.instanceConfigUpdated();
 
-        updateConfigFile(getCurrentConfigPath(), configFile);
+        updateConfigFile(getCurrentConfigPath());
         LoggingService.logInfo(MODULE_NAME, "Finished updating agent configurations");
     }
 
@@ -498,26 +496,40 @@ public final class Configuration {
 
     public static void updateConfigBackUpFile() {
         try {
-            updateConfigFile(getBackUpConfigPath(), configFile);
+            updateConfigFile(getBackUpConfigPath());
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error saving backup config File", e);
         }
     }
 
     /**
-     * saves configuration data to config.xml
+     * saves configuration data to config.yaml
      *
      * @throws Exception
      */
-    private static void updateConfigFile(String filePath, Document newFile) throws Exception {
+    private static void updateConfigFile(String filePath) throws Exception {
         try {
-            LoggingService.logInfo(MODULE_NAME, "Start updating configuration data to config.xml");
-            Transformer transformer = TransformerFactory.newInstance().newTransformer();
-            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
-            StreamResult result = new StreamResult(new File(filePath));
-            DOMSource source = new DOMSource(newFile);
-            transformer.transform(source, result);
-            LoggingService.logInfo(MODULE_NAME, "Finished saving configuration data to config.xml");
+            LoggingService.logInfo(MODULE_NAME, "Start updating configuration data to config.yaml");
+            if (yamlConfig == null) {
+                throw new ConfigurationItemException("Configuration not loaded");
+            }
+            
+            DumperOptions options = new DumperOptions();
+            options.setIndent(2);
+            options.setPrettyFlow(true);
+            options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+            
+            Representer representer = new Representer(options);
+            representer.getPropertyUtils().setSkipMissingProperties(true);
+            // Map custom classes to Tag.MAP to prevent writing class tags
+            representer.addClassTag(YamlConfig.class, Tag.MAP);
+            representer.addClassTag(ProfileConfig.class, Tag.MAP);
+            
+            Yaml yaml = new Yaml(representer, options);
+            try (FileWriter writer = new FileWriter(filePath)) {
+                yaml.dump(yamlConfig, writer);
+            }
+            LoggingService.logInfo(MODULE_NAME, "Finished saving configuration data to config.yaml");
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error saving config File", e);
             throw new AgentSystemException("Error updating config file : "+ filePath, e);
@@ -567,14 +579,14 @@ public final class Configuration {
                             break;
                         }
                         setDiskLimit(Float.parseFloat(value));
-                        setNode(DISK_CONSUMPTION_LIMIT, value, configFile, configElement);
+                        setNode(DISK_CONSUMPTION_LIMIT, value);
                         break;
 
                     case DISK_DIRECTORY:
                         LoggingService.logInfo(MODULE_NAME, "Setting disk directory");
                         value = addSeparator(value);
                         setDiskDirectory(value);
-                        setNode(DISK_DIRECTORY, value, configFile, configElement);
+                        setNode(DISK_DIRECTORY, value);
                         break;
                     case MEMORY_CONSUMPTION_LIMIT:
                         LoggingService.logInfo(MODULE_NAME, "Setting memory consumption limit");
@@ -589,7 +601,7 @@ public final class Configuration {
                             break;
                         }
                         setMemoryLimit(Float.parseFloat(value));
-                        setNode(MEMORY_CONSUMPTION_LIMIT, value, configFile, configElement);
+                        setNode(MEMORY_CONSUMPTION_LIMIT, value);
                         break;
                     case PROCESSOR_CONSUMPTION_LIMIT:
                         LoggingService.logInfo(MODULE_NAME, "Setting processor consumption limit");
@@ -604,22 +616,22 @@ public final class Configuration {
                             break;
                         }
                         setCpuLimit(Float.parseFloat(value));
-                        setNode(PROCESSOR_CONSUMPTION_LIMIT, value, configFile, configElement);
+                        setNode(PROCESSOR_CONSUMPTION_LIMIT, value);
                         break;
                     case CONTROLLER_URL:
                         LoggingService.logInfo(MODULE_NAME, "Setting controller url");
-                        setNode(CONTROLLER_URL, value, configFile, configElement);
+                        setNode(CONTROLLER_URL, value);
                         setControllerUrl(value);
                         break;
                     case CONTROLLER_CERT:
                         LoggingService.logInfo(MODULE_NAME, "Setting controller cert");
-                        setNode(CONTROLLER_CERT, value, configFile, configElement);
+                        setNode(CONTROLLER_CERT, value);
                         setControllerCert(value);
                         break;
                     case DOCKER_URL:
                         LoggingService.logInfo(MODULE_NAME, "Setting docker url");
                         if (value.startsWith("tcp://") || value.startsWith("unix://")) {
-                            setNode(DOCKER_URL, value, configFile, configElement);
+                            setNode(DOCKER_URL, value);
                             setDockerUrl(value);
                         } else {
                             messageMap.put(option, "Unsupported protocol scheme. Only 'tcp://' or 'unix://' supported.\n");
@@ -629,7 +641,7 @@ public final class Configuration {
                     case NETWORK_INTERFACE:
                         LoggingService.logInfo(MODULE_NAME, "Setting disk network interface");
                         if (defaults || isValidNetworkInterface(value.trim())) {
-                            setNode(NETWORK_INTERFACE, value, configFile, configElement);
+                            setNode(NETWORK_INTERFACE, value);
                             setNetworkInterface(value);
                             IOFogNetworkInterfaceManager.getInstance().updateIOFogNetworkInterface();
                         } else {
@@ -649,14 +661,14 @@ public final class Configuration {
                             messageMap.put(option, "Log disk limit range must be 0.5 to 100 GB");
                             break;
                         }
-                        setNode(LOG_DISK_CONSUMPTION_LIMIT, value, configFile, configElement);
+                        setNode(LOG_DISK_CONSUMPTION_LIMIT, value);
                         setLogDiskLimit(Float.parseFloat(value));
                         updateLogger = true;
                         break;
                     case LOG_DISK_DIRECTORY:
                         LoggingService.logInfo(MODULE_NAME, "Setting log disk directory");
                         value = addSeparator(value);
-                        setNode(LOG_DISK_DIRECTORY, value, configFile, configElement);
+                        setNode(LOG_DISK_DIRECTORY, value);
                         setLogDiskDirectory(value);
                         updateLogger = true;
                         break;
@@ -672,7 +684,7 @@ public final class Configuration {
                             messageMap.put(option, "Log file count range must be 1 to 100");
                             break;
                         }
-                        setNode(LOG_FILE_COUNT, value, configFile, configElement);
+                        setNode(LOG_FILE_COUNT, value);
                         setLogFileCount(Integer.parseInt(value));
                         updateLogger = true;
                         break;
@@ -684,7 +696,7 @@ public final class Configuration {
                             messageMap.put(option, "Option -" + option + " has invalid value: " + value);
                             break;
                         }
-                        setNode(LOG_LEVEL, value.toUpperCase(), configFile, configElement);
+                        setNode(LOG_LEVEL, value.toUpperCase());
                         setLogLevel(value.toUpperCase());
                         updateLogger = true;
                         break;
@@ -700,7 +712,7 @@ public final class Configuration {
                             messageMap.put(option, "Status update frequency must be greater than 1");
                             break;
                         }
-                        setNode(STATUS_FREQUENCY, value, configFile, configElement);
+                        setNode(STATUS_FREQUENCY, value);
                         setStatusFrequency(Integer.parseInt(value));
                         break;
                     case CHANGE_FREQUENCY:
@@ -715,7 +727,7 @@ public final class Configuration {
                             messageMap.put(option, "Get changes frequency must be greater than 1");
                             break;
                         }
-                        setNode(CHANGE_FREQUENCY, value, configFile, configElement);
+                        setNode(CHANGE_FREQUENCY, value);
                         setChangeFrequency(Integer.parseInt(value));
                         break;
                     case DEVICE_SCAN_FREQUENCY:
@@ -730,7 +742,7 @@ public final class Configuration {
                             messageMap.put(option, "Get scan devices frequency must be greater than 1");
                             break;
                         }
-                        setNode(DEVICE_SCAN_FREQUENCY, value, configFile, configElement);
+                        setNode(DEVICE_SCAN_FREQUENCY, value);
                         setDeviceScanFrequency(Integer.parseInt(value));
                         break;
                     case POST_DIAGNOSTICS_FREQ:
@@ -745,7 +757,7 @@ public final class Configuration {
                             messageMap.put(option, "Post diagnostics frequency must be greater than 1");
                             break;
                         }
-                        setNode(POST_DIAGNOSTICS_FREQ, value, configFile, configElement);
+                        setNode(POST_DIAGNOSTICS_FREQ, value);
                         setPostDiagnosticsFreq(Integer.parseInt(value));
                         break;
                     case WATCHDOG_ENABLED:
@@ -754,7 +766,7 @@ public final class Configuration {
                             messageMap.put(option, "Option -" + option + " has invalid value: " + value);
                             break;
                         }
-                        setNode(WATCHDOG_ENABLED, value, configFile, configElement);
+                        setNode(WATCHDOG_ENABLED, value);
                         setWatchdogEnabled(!value.equals("off"));
                         break;
                     case EDGE_GUARD_FREQUENCY:
@@ -769,12 +781,12 @@ public final class Configuration {
                             messageMap.put(option, "Edge guard frequency must be positive value");
                             break;
                         }
-                        setNode(EDGE_GUARD_FREQUENCY, value, configFile, configElement);
+                        setNode(EDGE_GUARD_FREQUENCY, value);
                         setEdgeGuardFrequency(longValue);
                         break;
                     case GPS_DEVICE:
                         LoggingService.logInfo(MODULE_NAME, "Setting gps device");
-                        setNode(GPS_DEVICE, value, configFile, configElement);
+                        setNode(GPS_DEVICE, value);
                         setGpsDevice(value);
                         break;
                     case GPS_SCAN_FREQUENCY:
@@ -786,11 +798,19 @@ public final class Configuration {
                             break;
                         }
                         if (longValue < 0) {
-                            messageMap.put(option, "Gps scan frequency must be positive value");
+                            messageMap.put(option, "Gps scan frequency must be 0 or positive value (0 disables scheduler)");
                             break;
                         }
-                        setNode(GPS_SCAN_FREQUENCY, value, configFile, configElement);
+                        setNode(GPS_SCAN_FREQUENCY, value);
                         setGpsScanFrequency(longValue);
+                        // Notify GPS Manager to update scheduler frequency
+                        CompletableFuture.runAsync(() -> {
+                            try {
+                                GpsManager.getInstance().changeGpsScanFrequencyInterval();
+                            } catch (Exception e) {
+                                LoggingService.logError(MODULE_NAME, "Error updating GPS scan frequency interval", e);
+                            }
+                        });
                         break;
                     case GPS_MODE:
                         LoggingService.logInfo(MODULE_NAME, "Setting gps mode");
@@ -814,11 +834,11 @@ public final class Configuration {
                             break;
                         }
                         break;
-                    case FOG_TYPE:
-                        LoggingService.logInfo(MODULE_NAME, "Setting fogtype");
+                    case ARCH:
+                        LoggingService.logInfo(MODULE_NAME, "Setting arch");
                         try {
-                            configureFogType(value);
-                            setNode(FOG_TYPE, value, configFile, configElement);
+                            configureArch(value);
+                            setNode(ARCH, value);
                         } catch (ConfigurationItemException e){
                             messageMap.put(option, "Option -" + option + " has invalid value: " + value);
                             break;
@@ -826,7 +846,7 @@ public final class Configuration {
                         break;
                     case SECURE_MODE:
                         LoggingService.logInfo(MODULE_NAME, "Setting secure mode");
-                        setNode(SECURE_MODE, value, configFile, configElement);
+                        setNode(SECURE_MODE, value);
                         setSecureMode(!value.equals("off"));
                         break;
                     case ROUTER_HOST:
@@ -849,7 +869,7 @@ public final class Configuration {
                             messageMap.put(option, "Docker pruning frequency must be positive value");
                             break;
                         }
-                        setNode(DOCKER_PRUNING_FREQUENCY, value, configFile, configElement);
+                        setNode(DOCKER_PRUNING_FREQUENCY, value);
                         setDockerPruningFrequency(Long.parseLong(value));
                         break;
                     case AVAILABLE_DISK_THRESHOLD:
@@ -864,7 +884,7 @@ public final class Configuration {
                             messageMap.put(option, "Available disk threshold must be greater than 1");
                             break;
                         }
-                        setNode(AVAILABLE_DISK_THRESHOLD, value, configFile, configElement);
+                        setNode(AVAILABLE_DISK_THRESHOLD, value);
                         setAvailableDiskThreshold(Long.parseLong(value));
                         break;
                     case READY_TO_UPGRADE_SCAN_FREQUENCY:
@@ -879,13 +899,13 @@ public final class Configuration {
                             messageMap.put(option, "isReadyToUpgrade scan frequency must be greater than 1");
                             break;
                         }
-                        setNode(READY_TO_UPGRADE_SCAN_FREQUENCY, value, configFile, configElement);
+                        setNode(READY_TO_UPGRADE_SCAN_FREQUENCY, value);
                         setReadyToUpgradeScanFrequency(Integer.parseInt(value));
                         FieldAgent.getInstance().changeReadInterval();
                         break;
                     case DEV_MODE:
                         LoggingService.logInfo(MODULE_NAME, "Setting dev mode");
-                        setNode(DEV_MODE, value, configFile, configElement);
+                        setNode(DEV_MODE, value);
                         setDevMode(!value.equals("off"));
                         break;
                     case TIME_ZONE:
@@ -904,10 +924,6 @@ public final class Configuration {
                         LoggingService.logInfo(MODULE_NAME, "Setting TLS key");
                         setTlsKey(value);
                         break;
-                    // case PRIVATE_KEY:
-                    //     LoggingService.logInfo(MODULE_NAME, "Setting privateKey");
-                    //     setPrivateKey(value);
-                    //     break;
                     default:
                         throw new ConfigurationItemException("Invalid parameter -" + option);
                 }
@@ -925,7 +941,7 @@ public final class Configuration {
                 throw e;
             } finally {
                 if (configUpdateError) {
-                    updateConfigFile(getBackUpConfigPath(), configFile);
+                    updateConfigFile(getBackUpConfigPath());
                 }
             }
         } else {
@@ -940,36 +956,36 @@ public final class Configuration {
     }
 
     /**
-     * Configures fogType.
+     * Configures arch.
      *
-     * @param fogTypeCommand could be "auto" or string that matches one of the {@link ArchitectureType} patterns
+     * @param archCommand could be "auto" or string that matches one of the {@link ArchitectureType} patterns
      * @throws ConfigurationItemException if {@link ArchitectureType} undefined
      */
-    private static void configureFogType(String fogTypeCommand) throws ConfigurationItemException {
-    	LoggingService.logInfo(MODULE_NAME, "Start configure FogType ");
-        ArchitectureType newFogType = ArchitectureType.UNDEFINED;
-        switch (fogTypeCommand) {
+    private static void configureArch(String archCommand) throws ConfigurationItemException {
+    	LoggingService.logInfo(MODULE_NAME, "Start configure Arch ");
+        ArchitectureType newArch = ArchitectureType.UNDEFINED;
+        switch (archCommand) {
             case "auto": {
-                newFogType = ArchitectureType.getArchTypeByArchName(System.getProperty("os.arch"));
+                newArch = ArchitectureType.getArchTypeByArchName(System.getProperty("os.arch"));
                 break;
             }
             case "intel_amd": {
-                newFogType = ArchitectureType.INTEL_AMD;
+                newArch = ArchitectureType.INTEL_AMD;
                 break;
             }
             case "arm": {
-                newFogType = ArchitectureType.ARM;
+                newArch = ArchitectureType.ARM;
                 break;
             }
         }
 
-        if (newFogType == ArchitectureType.UNDEFINED) {
-            throw new ConfigurationItemException("Couldn't autodetect fogType or unknown fogType type was set.");
+        if (newArch == ArchitectureType.UNDEFINED) {
+            throw new ConfigurationItemException("Couldn't autodetect arch or unknown arch type was set.");
         }
 
-        setFogType(newFogType);
+        setArch(newArch);
         updateAutomaticConfigParams();
-        LoggingService.logInfo(MODULE_NAME, "Finished configure FogType :  " + newFogType);
+        LoggingService.logInfo(MODULE_NAME, "Finished configure Arch :  " + newArch);
     }
 
     /**
@@ -993,6 +1009,9 @@ public final class Configuration {
         } else if (GpsMode.OFF.name().toLowerCase().equals(gpsModeCommand)) {
             gpsCoordinates = "";
             currentMode = GpsMode.OFF;
+            // Automatically set GPS scan frequency to 0 when mode is OFF
+            setGpsScanFrequency(0);
+            LoggingService.logDebug(MODULE_NAME, "GPS mode set to OFF - GPS scan frequency automatically set to 0");
         } else if (GpsMode.DYNAMIC.name().toLowerCase().equals(gpsModeCommand)) {
             gpsCoordinates = "";
             currentMode = GpsMode.DYNAMIC;
@@ -1034,8 +1053,8 @@ public final class Configuration {
     	
     	LoggingService.logDebug(MODULE_NAME, "Start writing GPS coordinates and GPS mode to config file");
     	
-        setNode(GPS_MODE, gpsMode.name().toLowerCase(), configFile, configElement);
-        setNode(GPS_COORDINATES, gpsCoordinates, configFile, configElement);
+        setNode(GPS_MODE, gpsMode.name().toLowerCase());
+        setNode(GPS_COORDINATES, gpsCoordinates);
         
         LoggingService.logDebug(MODULE_NAME, "Finished writing GPS coordinates and GPS mode to config file");
     }
@@ -1119,82 +1138,108 @@ public final class Configuration {
 
 
     /**
-     * loads configuration from config.xml file
+     * loads configuration from config.yaml file
      *
      * @throws ConfigurationItemException
      */
     public static void loadConfig() throws ConfigurationItemException {
     	LoggingService.logInfo(MODULE_NAME, "Start load Config");
     	
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        DocumentBuilder builder = null;
         boolean isConfigError = false;
-        try {
-			builder = factory.newDocumentBuilder();
-		} catch (ParserConfigurationException e) {
-			LoggingService.logError(MODULE_NAME, "Error while parsing config xml", new ConfigurationItemException(e.getMessage(), e));
-			throw new ConfigurationItemException(e.getMessage(), e);
-		}
-
-        try {
-        	configFile = builder.parse(getCurrentConfigPath());
-		} catch (Exception e) {
+        Yaml yaml = new Yaml();
+        
+        try (FileInputStream inputStream = new FileInputStream(getCurrentConfigPath())) {
+            yamlConfig = yaml.loadAs(inputStream, YamlConfig.class);
+            if (yamlConfig == null) {
+                throw new ConfigurationItemException("Failed to load YAML configuration");
+            }
+        } catch (Exception e) {
             isConfigError = true;
-			LoggingService.logError(MODULE_NAME, "Error while parsing config xml", new ConfigurationItemException("Error while parsing config xml", e));
-		}
+            LoggingService.logError(MODULE_NAME, "Error while parsing config yaml", new ConfigurationItemException("Error while parsing config yaml", e));
+        }
+        
         if (isConfigError) {
-            try {
-                configFile = builder.parse(getBackUpConfigPath());
+            try (FileInputStream inputStream = new FileInputStream(getBackUpConfigPath())) {
+                yamlConfig = yaml.loadAs(inputStream, YamlConfig.class);
+                if (yamlConfig == null) {
+                    throw new ConfigurationItemException("Failed to load backup YAML configuration");
+                }
             } catch (Exception e) {
-                LoggingService.logError(MODULE_NAME, "Error while parsing backup config xml", new ConfigurationItemException("Error while parsing config xml", e));
-                throw new ConfigurationItemException("Error while parsing config xml and backup config xml");
+                LoggingService.logError(MODULE_NAME, "Error while parsing backup config yaml", new ConfigurationItemException("Error while parsing config yaml", e));
+                throw new ConfigurationItemException("Error while parsing config yaml and backup config yaml");
             }
         }
 
-        configFile.getDocumentElement().normalize();
-
-        configElement = (Element) getFirstNodeByTagName("config", configFile);
-
-        setIofogUuid(getNode(IOFOG_UUID, configFile));
-        setPrivateKey(getNode(PRIVATE_KEY, configFile));
-        setControllerUrl(getNode(CONTROLLER_URL, configFile));
-        setControllerCert(getNode(CONTROLLER_CERT, configFile));
-        setNetworkInterface(getNode(NETWORK_INTERFACE, configFile));
-        setDockerUrl(getNode(DOCKER_URL, configFile));
-        setDiskLimit(Float.parseFloat(getNode(DISK_CONSUMPTION_LIMIT, configFile)));
-        setDiskDirectory(getNode(DISK_DIRECTORY, configFile));
-        setMemoryLimit(Float.parseFloat(getNode(MEMORY_CONSUMPTION_LIMIT, configFile)));
-        setCpuLimit(Float.parseFloat(getNode(PROCESSOR_CONSUMPTION_LIMIT, configFile)));
-        setLogDiskDirectory(getNode(LOG_DISK_DIRECTORY, configFile));
-        setLogDiskLimit(Float.parseFloat(getNode(LOG_DISK_CONSUMPTION_LIMIT, configFile)));
-        setLogFileCount(Integer.parseInt(getNode(LOG_FILE_COUNT, configFile)));
-        setLogLevel(getNode(LOG_LEVEL, configFile));
-        setGpsDevice(getNode(GPS_DEVICE, configFile));
-        setGpsScanFrequency(Long.parseLong(getNode(GPS_SCAN_FREQUENCY, configFile)));     
-        configureGps(getNode(GPS_MODE, configFile), getNode(GPS_COORDINATES, configFile));
-        setChangeFrequency(Integer.parseInt(getNode(CHANGE_FREQUENCY, configFile)));
-        setDeviceScanFrequency(Integer.parseInt(getNode(DEVICE_SCAN_FREQUENCY, configFile)));
-        setStatusFrequency(Integer.parseInt(getNode(STATUS_FREQUENCY, configFile)));
-        setPostDiagnosticsFreq(Integer.parseInt(getNode(POST_DIAGNOSTICS_FREQ, configFile)));
-        setWatchdogEnabled(!getNode(WATCHDOG_ENABLED, configFile).equals("off"));
-        setEdgeGuardFrequency(Long.parseLong(getNode(EDGE_GUARD_FREQUENCY, configFile)));
-        configureFogType(getNode(FOG_TYPE, configFile));
-        setSecureMode(!getNode(SECURE_MODE, configFile).equals("off"));
-        setIpAddressExternal(GpsWebHandler.getExternalIp());
-        setRouterHost(getNode(ROUTER_HOST, configFile));
-        setRouterPort(!getNode(ROUTER_PORT, configFile).equals("") ? Integer.parseInt(getNode(ROUTER_PORT, configFile)) : 0);
-
-        setDockerPruningFrequency(Long.parseLong(getNode(DOCKER_PRUNING_FREQUENCY, configFile)));
-        setAvailableDiskThreshold(Long.parseLong(getNode(AVAILABLE_DISK_THRESHOLD, configFile)));
-        setReadyToUpgradeScanFrequency(Integer.parseInt(getNode(READY_TO_UPGRADE_SCAN_FREQUENCY, configFile)));
-        setDevMode(!getNode(DEV_MODE, configFile).equals("off"));
-        configureTimeZone(getNode(TIME_ZONE, configFile));
-        setCaCert(getNode(CA_CERT, configFile));
-        setTlsCert(getNode(TLS_CERT, configFile));
-        setTlsKey(getNode(TLS_KEY, configFile));
-
+        // Validate and set current profile
+        String currentProfileStr = yamlConfig.getCurrentProfile();
+        if (currentProfileStr == null || currentProfileStr.isEmpty()) {
+            currentProfileStr = ConfigSwitcherState.DEFAULT.fullValue();
+            yamlConfig.setCurrentProfile(currentProfileStr);
+        }
+        
         try {
-            updateConfigFile(getCurrentConfigPath(), configFile);
+            currentSwitcherState = ConfigSwitcherState.parse(currentProfileStr);
+        } catch (IllegalArgumentException e) {
+            LoggingService.logError(MODULE_NAME, "Error while reading current profile state, using default config", 
+                    new ConfigurationItemException(e.getMessage(), e));
+            currentSwitcherState = ConfigSwitcherState.DEFAULT;
+            yamlConfig.setCurrentProfile(ConfigSwitcherState.DEFAULT.fullValue());
+        }
+
+        // Ensure current profile exists
+        if (!yamlConfig.getProfiles().containsKey(currentProfileStr)) {
+            LoggingService.logWarning(MODULE_NAME, "Current profile not found: " + currentProfileStr + ", using default");
+            currentSwitcherState = ConfigSwitcherState.DEFAULT;
+            yamlConfig.setCurrentProfile(ConfigSwitcherState.DEFAULT.fullValue());
+        }
+
+        ProfileConfig currentProfile = yamlConfig.getProfile(yamlConfig.getCurrentProfile());
+        if (currentProfile == null) {
+            throw new ConfigurationItemException("Current profile configuration not found: " + yamlConfig.getCurrentProfile());
+        }
+
+        // Load all configuration values from current profile
+        setIofogUuid(getNode(IOFOG_UUID));
+        setPrivateKey(getNode(PRIVATE_KEY));
+        setControllerUrl(getNode(CONTROLLER_URL));
+        setControllerCert(getNode(CONTROLLER_CERT));
+        setNetworkInterface(getNode(NETWORK_INTERFACE));
+        setDockerUrl(getNode(DOCKER_URL));
+        setDiskLimit(Float.parseFloat(getNode(DISK_CONSUMPTION_LIMIT)));
+        setDiskDirectory(getNode(DISK_DIRECTORY));
+        setMemoryLimit(Float.parseFloat(getNode(MEMORY_CONSUMPTION_LIMIT)));
+        setCpuLimit(Float.parseFloat(getNode(PROCESSOR_CONSUMPTION_LIMIT)));
+        setLogDiskDirectory(getNode(LOG_DISK_DIRECTORY));
+        setLogDiskLimit(Float.parseFloat(getNode(LOG_DISK_CONSUMPTION_LIMIT)));
+        setLogFileCount(Integer.parseInt(getNode(LOG_FILE_COUNT)));
+        setLogLevel(getNode(LOG_LEVEL));
+        setGpsDevice(getNode(GPS_DEVICE));
+        setGpsScanFrequency(Long.parseLong(getNode(GPS_SCAN_FREQUENCY)));     
+        configureGps(getNode(GPS_MODE), getNode(GPS_COORDINATES));
+        setChangeFrequency(Integer.parseInt(getNode(CHANGE_FREQUENCY)));
+        setDeviceScanFrequency(Integer.parseInt(getNode(DEVICE_SCAN_FREQUENCY)));
+        setStatusFrequency(Integer.parseInt(getNode(STATUS_FREQUENCY)));
+        setPostDiagnosticsFreq(Integer.parseInt(getNode(POST_DIAGNOSTICS_FREQ)));
+        setWatchdogEnabled(!getNode(WATCHDOG_ENABLED).equals("off"));
+        setEdgeGuardFrequency(Long.parseLong(getNode(EDGE_GUARD_FREQUENCY)));
+        configureArch(getNode(ARCH));
+        setSecureMode(!getNode(SECURE_MODE).equals("off"));
+        setIpAddressExternal(GpsWebHandler.getExternalIp());
+        setRouterHost(getNode(ROUTER_HOST));
+        setRouterPort(!getNode(ROUTER_PORT).equals("") ? Integer.parseInt(getNode(ROUTER_PORT)) : 0);
+
+        setDockerPruningFrequency(Long.parseLong(getNode(DOCKER_PRUNING_FREQUENCY)));
+        setAvailableDiskThreshold(Long.parseLong(getNode(AVAILABLE_DISK_THRESHOLD)));
+        setReadyToUpgradeScanFrequency(Integer.parseInt(getNode(READY_TO_UPGRADE_SCAN_FREQUENCY)));
+        setDevMode(!getNode(DEV_MODE).equals("off"));
+        configureTimeZone(getNode(TIME_ZONE));
+        setCaCert(getNode(CA_CERT));
+        setTlsCert(getNode(TLS_CERT));
+        setTlsKey(getNode(TLS_KEY));
+        setNamespace(getNode(NAMESPACE));
+        
+        try {
+            updateConfigFile(getCurrentConfigPath());
         } catch (Exception e) {
             try {
                 LoggingService.logError(MODULE_NAME, "Error saving config", e);
@@ -1203,7 +1248,7 @@ public final class Configuration {
             }
         } finally {
             try {
-                updateConfigFile(getBackUpConfigPath(), configFile);
+                updateConfigFile(getBackUpConfigPath());
             } catch (Exception e) {
                 LoggingService.logError(MODULE_NAME, "Error saving config back up file", e);
             }
@@ -1212,55 +1257,15 @@ public final class Configuration {
     }
 
     /**
-     * loads configuration about current config from config-switcher.xml
+     * loads configuration about current profile from config.yaml
+     * This method is now merged into loadConfig() but kept for backward compatibility
      *
      * @throws ConfigurationItemException
      */
     public static void loadConfigSwitcher() throws ConfigurationItemException {
-    	LoggingService.logInfo(MODULE_NAME, "Start loads configuration about current config from config-switcher.xml");
-    	
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        DocumentBuilder builder = null;
-		try {
-			builder = factory.newDocumentBuilder();
-		} catch (ParserConfigurationException e) {
-			LoggingService.logError(MODULE_NAME, "Error while parsing config switcher xml", e);
-			throw new ConfigurationItemException(e.getMessage(), e);
-		}
-
-        try {
-			configSwitcherFile = builder.parse(CONFIG_SWITCHER_PATH);
-		} catch (SAXException e) {
-			LoggingService.logError(MODULE_NAME, "Error while parsing config switcher xml", 
-					new ConfigurationItemException(e.getMessage(), e));
-			throw new ConfigurationItemException(e.getMessage(), e);
-		} catch (IOException e) {
-			LoggingService.logError(MODULE_NAME, "Error while parsing config switcher xml", 
-					new ConfigurationItemException(e.getMessage(), e));
-			throw new ConfigurationItemException(e.getMessage(), e);
-		}
-        configSwitcherFile.getDocumentElement().normalize();
-
-        configSwitcherElement = (Element) getFirstNodeByTagName(SWITCHER_ELEMENT, configSwitcherFile);
-
-        verifySwitcherNode(SWITCHER_NODE, ConfigSwitcherState.DEFAULT.fullValue());
-        LoggingService.logInfo(MODULE_NAME, "Finished loading configuration about current config from config-switcher.xml");
-    }
-
-    // this code will be triggered in case of iofog updated (not newly installed) and add new option for config
-    private static void createConfigProperty(CommandLineConfigParam cmdParam) throws Exception {
-    	LoggingService.logDebug(MODULE_NAME, "Start create config property");
-        // TODO: add appropriate handling of case when 0 nodes found or multiple before adding new property to file
-        Element el = configFile.createElement(cmdParam.getXmlTag());
-        el.appendChild(configFile.createTextNode(cmdParam.getDefaultValue()));
-        configElement.appendChild(el);
-
-        DOMSource source = new DOMSource(configFile);
-        TransformerFactory transformerFactory = TransformerFactory.newInstance();
-        Transformer transformer = transformerFactory.newTransformer();
-        StreamResult result = new StreamResult(getCurrentConfigPath());
-        transformer.transform(source, result);
-        LoggingService.logDebug(MODULE_NAME, "Finished create config property");
+    	LoggingService.logInfo(MODULE_NAME, "Start loads configuration about current profile from config.yaml");
+        // Profile loading is now handled in loadConfig()
+        LoggingService.logInfo(MODULE_NAME, "Finished loading configuration about current profile from config.yaml");
     }
 
     // public static String getAccessToken() {
@@ -1327,40 +1332,18 @@ public final class Configuration {
 
     // public static void setAccessToken(String accessToken) throws ConfigurationItemException {
     // 	LoggingService.logDebug(MODULE_NAME, "Start set access token");
-    //     setNode(ACCESS_TOKEN, accessToken, configFile, configElement);
+    //     setNode(ACCESS_TOKEN, accessToken);
     //     Configuration.accessToken = accessToken;
     //     LoggingService.logDebug(MODULE_NAME, "Finished set access token");
     // }
 
     public static void setIofogUuid(String iofogUuid) throws ConfigurationItemException {
     	LoggingService.logDebug(MODULE_NAME, "Start set Iofog uuid");
-        setNode(IOFOG_UUID, iofogUuid, configFile, configElement);
+        setNode(IOFOG_UUID, iofogUuid);
         Configuration.iofogUuid = iofogUuid;
         LoggingService.logDebug(MODULE_NAME, "Finished set Iofog uuid");
     }
 
-    private static void verifySwitcherNode(String switcher, String defaultValue) throws ConfigurationItemException {
-    	LoggingService.logInfo(MODULE_NAME, "Start verify Switcher Node");
-    	
-        NodeList nodes = configSwitcherElement.getElementsByTagName(switcher);
-        if (nodes.getLength() == 0) {
-            configSwitcherElement.appendChild(configSwitcherFile.createElement(switcher));
-            getFirstNodeByTagName(switcher, configSwitcherFile).setTextContent(defaultValue);
-            currentSwitcherState = ConfigSwitcherState.DEFAULT;
-        } else {
-            String currentState = getFirstNodeByTagName(switcher, configSwitcherFile).getTextContent();
-            try {
-                currentSwitcherState = ConfigSwitcherState.parse(currentState);
-            } catch (IllegalArgumentException e) {
-                currentSwitcherState = ConfigSwitcherState.DEFAULT;
-                System.out.println("Error while reading current switcher state, using default config");
-                LoggingService.logError(MODULE_NAME, "Error while reading current switcher state, using default config", 
-                		new ConfigurationItemException(e.getMessage(), e));
-                throw new ConfigurationItemException(e.getMessage(), e);
-            }
-        }
-        LoggingService.logInfo(MODULE_NAME, "Finished verify Switcher Node");
-    }
 
     private static void setControllerUrl(String controllerUrl) {
     	LoggingService.logDebug(MODULE_NAME, "Set ControllerUrl");
@@ -1472,7 +1455,7 @@ public final class Configuration {
         // gps coordinates
         result.append(buildReportLine(getConfigParamMessage(GPS_COORDINATES), gpsCoordinates));
         //fog type
-        result.append(buildReportLine(getConfigParamMessage(FOG_TYPE), fogType.name().toLowerCase()));
+        result.append(buildReportLine(getConfigParamMessage(ARCH), arch.name().toLowerCase()));
         // docker pruning frequency
         result.append(buildReportLine(getConfigParamMessage(DOCKER_PRUNING_FREQUENCY), format("%d", dockerPruningFrequency)));
         // available disk threshold
@@ -1486,13 +1469,17 @@ public final class Configuration {
         // result.append(buildReportLine(getConfigParamMessage(CA_CERT), caCert != null ? "configured" : "not configured"));
         // result.append(buildReportLine(getConfigParamMessage(TLS_CERT), tlsCert != null ? "configured" : "not configured"));
         // result.append(buildReportLine(getConfigParamMessage(TLS_KEY), tlsKey != null ? "configured" : "not configured"));
+        // namespace
+        result.append(buildReportLine(getConfigParamMessage(NAMESPACE), 
+            (namespace != null && !namespace.isEmpty()) ? namespace : "default"));
         LoggingService.logDebug(MODULE_NAME, "Finished get Config Report");
         
         return result.toString();
     }
 
     private static String buildReportLine(String messageDescription, String value) {
-        return rightPad(messageDescription, 40, ' ') + " : " + value + "\\n";
+        String safeValue = (value == null) ? "" : value;
+        return rightPad(messageDescription, 40, ' ') + " : " + safeValue + "\\n";
     }
 
     public static String getNetworkInterfaceInfo() {
@@ -1506,24 +1493,16 @@ public final class Configuration {
         return networkInterfaceName + "(" + NETWORK_INTERFACE.getDefaultValue() + ")";
     }
 
-    public static Document getCurrentConfig() {
-        return configFile;
+    public static YamlConfig getCurrentConfig() {
+        return yamlConfig;
     }
 
     public static String getCurrentConfigPath() {
-        switch (currentSwitcherState) {
-            case DEVELOPMENT:
-                return Constants.DEVELOPMENT_CONFIG_PATH;
-            case PRODUCTION:
-                return Constants.PRODUCTION_CONFIG_PATH;
-            case DEFAULT:
-            default:
-                return Constants.DEFAULT_CONFIG_PATH;
-        }
+        return Constants.CONFIG_YAML_PATH;
     }
 
     public static String getBackUpConfigPath() {
-        return Constants.BACKUP_CONFIG_PATH;
+        return Constants.BACKUP_CONFIG_YAML_PATH;
     }
 
     public static String setupConfigSwitcher(ConfigSwitcherState state) {
@@ -1546,7 +1525,7 @@ public final class Configuration {
             System.out.println(ExceptionUtils.getStackTrace(e));
             System.exit(1);
         } catch (Exception e) {
-            System.out.println("Error while parsing " + Constants.CONFIG_SWITCHER_PATH);
+            System.out.println("Error while parsing config.yaml");
             System.out.println(e.getMessage());
             System.out.println(ExceptionUtils.getStackTrace(e));
             System.exit(1);
@@ -1570,10 +1549,12 @@ public final class Configuration {
 
     private static String reload(ConfigSwitcherState newState, ConfigSwitcherState previousState) {
         try {
-            getFirstNodeByTagName(SWITCHER_NODE, configSwitcherFile).setTextContent(newState.fullValue());
-            updateConfigFile(CONFIG_SWITCHER_PATH, configSwitcherFile);
+            if (yamlConfig == null) {
+                throw new ConfigurationItemException("Configuration not loaded");
+            }
+            yamlConfig.setCurrentProfile(newState.fullValue());
+            updateConfigFile(getCurrentConfigPath());
 
-            Configuration.loadConfigSwitcher();
             Configuration.loadConfig();
 
             FieldAgent.getInstance().instanceConfigUpdated();
@@ -1584,8 +1565,10 @@ public final class Configuration {
             return "Successfully switched to new configuration.";
         } catch (Exception e) {
             try {
-                getFirstNodeByTagName(SWITCHER_NODE, configSwitcherFile).setTextContent(previousState.fullValue());
-                updateConfigFile(CONFIG_SWITCHER_PATH, configSwitcherFile);
+                if (yamlConfig != null) {
+                    yamlConfig.setCurrentProfile(previousState.fullValue());
+                    updateConfigFile(getCurrentConfigPath());
+                }
 
                 load();
 
@@ -1680,7 +1663,7 @@ public final class Configuration {
 
     public static void setTimeZone(String timeZone)  throws ConfigurationItemException {
         LoggingService.logDebug(MODULE_NAME, "Start set timeZone");
-        setNode(TIME_ZONE, timeZone, configFile, configElement);
+        setNode(TIME_ZONE, timeZone);
         Configuration.timeZone = timeZone;
         LoggingService.logDebug(MODULE_NAME, "Finished set timeZone");
 
@@ -1692,7 +1675,7 @@ public final class Configuration {
 
     public static void setPrivateKey(String privateKey) throws ConfigurationItemException {
         LoggingService.logDebug(MODULE_NAME, "Start set private key");
-            setNode(PRIVATE_KEY, privateKey, configFile, configElement);
+            setNode(PRIVATE_KEY, privateKey);
             Configuration.privateKey = privateKey;
             LoggingService.logDebug(MODULE_NAME, "Finished set private key");
     }
@@ -1719,6 +1702,19 @@ public final class Configuration {
 
     public static void setTlsKey(String tlsKey) {
         Configuration.tlsKey = tlsKey;
+    }
+
+    public static String getNamespace() {
+        return namespace;
+    }
+
+    public static void setNamespace(String namespace) throws ConfigurationItemException {
+        LoggingService.logDebug(MODULE_NAME, "Start set namespace");
+        // Ensure namespace is never null or empty - default to "default"
+        String safeNamespace = (namespace == null || namespace.isEmpty()) ? "default" : namespace;
+        setNode(NAMESPACE, safeNamespace);
+        Configuration.namespace = safeNamespace;
+        LoggingService.logDebug(MODULE_NAME, "Finished set namespace");
     }
 
     /**

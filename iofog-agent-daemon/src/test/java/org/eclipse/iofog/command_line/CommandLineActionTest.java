@@ -87,13 +87,13 @@ public class CommandLineActionTest {
         configurationMockedStatic.when(Configuration::getConfigReport)
                 .thenReturn("Config report");
 
-        configurationMockedStatic.when(() -> Configuration.getOldNodeValuesForParameters(anySet(), any()))
+        configurationMockedStatic.when(() -> Configuration.getOldNodeValuesForParameters(anySet()))
                 .thenReturn(result);
         configurationMockedStatic.when(() -> Configuration.setConfig(anyMap(),anyBoolean()))
                 .thenReturn(new HashMap<>())
                 .thenThrow(new Exception("item not found or defined more than once"));
 
-        Mockito.when(CmdProperties.getVersion()).thenReturn("3.5.6");
+        Mockito.when(CmdProperties.getVersion()).thenReturn("3.6.0");
         Mockito.when(CmdProperties.getVersionMessage()).thenReturn(version);
         Mockito.when(CmdProperties.getDeprovisionMessage()).thenReturn("Deprovisioning from controller ... %s");
         Mockito.when(CmdProperties.getProvisionMessage()).thenReturn("Provisioning with key \"%s\" ... Result: %s");
@@ -333,7 +333,7 @@ public class CommandLineActionTest {
 
         String[] args = {"config", "-ll", "severe"};
 //        Mockito.when(Configuration.setConfig(anyMap(), anyBoolean())).thenReturn(new HashMap<>());
-//        Mockito.when(Configuration.getOldNodeValuesForParameters(anySet(), any())).
+//        Mockito.when(Configuration.getOldNodeValuesForParameters(anySet())).
 //                thenReturn(result);
         Assertions.assertEquals("\\n\tChange accepted for Parameter : - ll, Old value was :info, New Value is : severe",
                 CommandLineAction.getActionByKey(args[0]).perform(args));
@@ -364,7 +364,7 @@ public class CommandLineActionTest {
             "0.00 MB\\nSystem Available Memory     : " +
             "0.00 MB\\nSystem Total CPU            : 0.00 %";
 
-    private String version = "ioFog Agent 3.5.6 \n" +
+    private String version = "ioFog Agent 3.6.0 \n" +
             "Copyright (c) 2023 Datasance Teknoloji A.S. \n" +
             "Eclipse ioFog is provided under the Eclipse Public License 2.0 (EPL-2.0) \n" +
             "https://www.eclipse.org/legal/epl-v20.html";

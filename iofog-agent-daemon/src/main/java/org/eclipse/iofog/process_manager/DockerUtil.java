@@ -35,6 +35,8 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.eclipse.iofog.exception.AgentSystemException;
 import org.eclipse.iofog.exception.AgentUserException;
 import org.eclipse.iofog.microservice.*;
+import org.eclipse.iofog.volume_mount.VolumeMountManager;
+import org.eclipse.iofog.volume_mount.VolumeMountType;
 import org.eclipse.iofog.status_reporter.StatusReporter;
 import org.eclipse.iofog.utils.Constants;
 import org.eclipse.iofog.utils.configuration.Configuration;
@@ -113,8 +115,8 @@ public class DockerUtil {
                 .withDockerHttpClient(httpClient)
                 .build();
             
-            // Ensure pot network exists during initialization
-            ensurePotNetworkExists();
+            // Ensure namespace network exists during initialization
+            ensureNamespaceNetworkExists();
             
         } catch (Exception e) {
             logError(MODULE_NAME,"Docker client initialization failed", new AgentUserException(e.getMessage(), e));
@@ -786,13 +788,30 @@ public class DockerUtil {
                 }
 
                 // Resolve host destination for volume mounts
-                String resolvedHostDestination = resolveVolumeMountPath(volumeMapping.getHostDestination());
+                String resolvedHostDestination = resolveVolumeMountPath(
+                    volumeMapping.getHostDestination(), 
+                    volumeMapping.getType(),
+                    microservice.getMicroserviceUuid());
 
-                Mount mount = (new Mount())
+                Mount mount;
+                if (volumeMapping.getType() == VolumeMappingType.VOLUME_MOUNT) {
+                    // Unified bind mount approach for both secrets and configMaps
+                    // If mounting a specific file (key specified in hostDestination), Docker will mount it as a file
+                    // If mounting entire directory (no key), Docker will mount it as a directory
+                    mount = (new Mount())
+                        .withSource(resolvedHostDestination)
+                        .withType(MountType.BIND)
+                        .withTarget(volumeMapping.getContainerDestination())
+                        .withReadOnly(isReadOnly);
+                    // Security is provided by file permissions (600 for secrets, 644 for configMaps)
+                } else {
+                    // Existing logic for BIND and VOLUME types
+                    mount = (new Mount())
                         .withSource(resolvedHostDestination)
                         .withType(volumeMapping.getType() == VolumeMappingType.BIND ? MountType.BIND : MountType.VOLUME)
                         .withTarget(volumeMapping.getContainerDestination())
                         .withReadOnly(isReadOnly);
+                }
                 volumeMounts.add(mount);
             });
         }
@@ -856,7 +875,7 @@ public class DockerUtil {
             logFiles = (int) (microservice.getLogSize() / 2);
 
         containerLogConfig.put("max-file", String.valueOf(logFiles));
-        containerLogConfig.put("max-size", "2m");
+        containerLogConfig.put("max-size", "100m");
         LogConfig containerLog = new LogConfig(LogConfig.LoggingType.DEFAULT, containerLogConfig);
 
         List<String> envVars = new ArrayList<>(Arrays.asList("SELFNAME=" + microservice.getMicroserviceUuid()));
@@ -937,13 +956,13 @@ public class DockerUtil {
                     hostConfig.withNetworkMode("host");
                 }
             } else if(hosts.length > 0) {
-                hostConfig.withNetworkMode("pot").withExtraHosts(hosts);
+                hostConfig.withNetworkMode(getNamespaceNetworkName()).withExtraHosts(hosts);
             }
         } else if (SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) {
             if(microservice.isHostNetworkMode()){
                 hostConfig.withNetworkMode("host");
             } else if(hosts.length > 0) {
-                hostConfig.withNetworkMode("pot").withExtraHosts(hosts);
+                hostConfig.withNetworkMode(getNamespaceNetworkName()).withExtraHosts(hosts);
             }
         }
 
@@ -1121,29 +1140,54 @@ public class DockerUtil {
     }
 
     /**
-     * Checks if the "pot" network exists and creates it if it doesn't
-     * @return true if network exists or was created successfully, false otherwise
+     * Checks if the "namespace" network exists and creates it if it doesn't
+     * Skips creation if namespace is not set yet (will be set after provisioning)
+     * @return true if network exists or was created successfully, or if namespace not set yet; false on error
      */
-    private boolean ensurePotNetworkExists() {
+    public boolean ensureNamespaceNetworkExists() {
         try {
+            String namespace = Configuration.getNamespace();
+            
+            // Skip network creation if namespace is not set yet (will be set after provisioning)
+            if (namespace == null || namespace.trim().isEmpty()) {
+                LoggingService.logDebug(MODULE_NAME, "Namespace not set yet, skipping network creation. Network will be created after provisioning.");
+                return true; // Return true to not fail initialization
+            }
+            
+            // Prefix network name to avoid conflicts with reserved Docker network names
+            String networkName = getNamespaceNetworkName();
+            
             List<Network> networks = dockerClient.listNetworksCmd().exec();
-            boolean potNetworkExists = networks.stream()
-                .anyMatch(network -> "pot".equals(network.getName()));
+            boolean namespaceNetworkExists = networks.stream()
+                .anyMatch(network -> networkName.equals(network.getName()));
 
-            if (!potNetworkExists) {
-                LoggingService.logInfo(MODULE_NAME, "Creating 'pot' bridge network");
+            if (!namespaceNetworkExists) {
+                LoggingService.logInfo(MODULE_NAME, "Creating namespace bridge network: " + networkName);
                 dockerClient.createNetworkCmd()
-                    .withName("pot")
+                    .withName(networkName)
                     .withDriver("bridge")
                     .exec();
-                LoggingService.logInfo(MODULE_NAME, "Successfully created 'pot' bridge network");
+                LoggingService.logInfo(MODULE_NAME, "Successfully created namespace bridge network: " + networkName);
             }
             return true;
         } catch (Exception e) {
-            LoggingService.logError(MODULE_NAME, "Failed to ensure 'pot' network exists", 
+            LoggingService.logError(MODULE_NAME, "Failed to ensure 'namespace' network exists", 
                 new AgentSystemException(e.getMessage(), e));
             return false;
         }
+    }
+
+    /**
+     * Gets the prefixed network name for the current namespace
+     * Prefixes with "iofog-" to avoid conflicts with reserved Docker network names
+     * @return Prefixed network name (e.g., "iofog-default", "iofog-production")
+     */
+    public static String getNamespaceNetworkName() {
+        String namespace = Configuration.getNamespace();
+        if (namespace == null || namespace.trim().isEmpty()) {
+            return "iofog-default";
+        }
+        return "iofog-" + namespace;
     }
 
     /**
@@ -1194,49 +1238,118 @@ public class DockerUtil {
         return annotationsMap;
     }
     /**
-     * Resolves volume mount paths that start with $VolumeMount prefix
-     * @param hostDestination The host destination path from volume mapping
+     * Resolves volume mount paths for VOLUME_MOUNT type
+     * @param hostDestination The host destination (volume mount name for VOLUME_MOUNT type)
+     * @param volumeMappingType The volume mapping type
+     * @param microserviceUuid The microservice UUID
      * @return Resolved host destination path
      */
-    private String resolveVolumeMountPath(String hostDestination) {
-        // Check if this is a volume mount reference
-        if (!hostDestination.startsWith("$VolumeMount/")) {
-            return hostDestination; // Return as-is if not a volume mount
+    private String resolveVolumeMountPath(String hostDestination, VolumeMappingType volumeMappingType, String microserviceUuid) {
+        // Handle new VOLUME_MOUNT type
+        if (volumeMappingType == VolumeMappingType.VOLUME_MOUNT) {
+            // Parse hostDestination to extract volume name and optional key
+            // Format: "volume-name" or "volume-name/key-name"
+            String volumeName;
+            String keyName = null;
+            
+            int slashIndex = hostDestination.indexOf('/');
+            if (slashIndex > 0) {
+                // Key is specified: "volume-name/key-name"
+                volumeName = hostDestination.substring(0, slashIndex);
+                keyName = hostDestination.substring(slashIndex + 1);
+            } else {
+                // No key specified: "volume-name" (mount entire directory)
+                volumeName = hostDestination;
+            }
+            
+            // Look up volume mount type from cache (O(1) lookup)
+            VolumeMountManager volumeMountManager = VolumeMountManager.getInstance();
+            VolumeMountType volumeMountType = volumeMountManager.getVolumeMountType(volumeName);
+            
+            if (volumeMountType == null) {
+                LoggingService.logWarning(MODULE_NAME, 
+                    "Volume mount type not found for: " + volumeName + ", defaulting to SECRET");
+                volumeMountType = VolumeMountType.SECRET;
+            }
+            
+            // Prepare per-microservice mount point
+            String mountPath = volumeMountManager.prepareMicroserviceVolumeMount(
+                microserviceUuid, volumeName, volumeMountType);
+            
+            // If key is specified, append it to mount path to point to specific file
+            if (keyName != null) {
+                mountPath = mountPath + "/" + keyName;
+            }
+            
+            // Check if agent is running in container
+            String iofogDaemon = System.getenv("IOFOG_DAEMON");
+            boolean isContainer = "container".equals(iofogDaemon != null ? iofogDaemon.toLowerCase() : null);
+            
+            if (isContainer) {
+                // Agent running in container - need to check volume mounting
+                try {
+                    // Check if iofog-agent-directory volume exists
+                    List<InspectVolumeResponse> volumes = dockerClient.listVolumesCmd().exec().getVolumes();
+                    boolean volumeExists = volumes.stream()
+                        .anyMatch(vol -> "iofog-agent-directory".equals(vol.getName()));
+                    
+                    if (volumeExists) {
+                        // Volume exists - inspect it to get mount point
+                        InspectVolumeResponse volumeInfo = dockerClient.inspectVolumeCmd("iofog-agent-directory").exec();
+                        String mountPoint = volumeInfo.getMountpoint();
+                        // Convert absolute path to relative path within volume
+                        String diskDir = Configuration.getDiskDirectory();
+                        if (mountPath.startsWith(diskDir)) {
+                            return mountPoint + mountPath.substring(diskDir.length());
+                        }
+                    }
+                } catch (Exception e) {
+                    LoggingService.logWarning(MODULE_NAME, 
+                        "Error checking volume mount, using direct path: " + e.getMessage());
+                }
+            }
+            
+            return mountPath;
         }
         
-        // Extract the volume name from $VolumeMount/name
-        String volumeName = hostDestination.substring("$VolumeMount/".length());
-        
-        // Check if agent is running in container
-        String iofogDaemon = System.getenv("IOFOG_DAEMON");
-        boolean isContainer = "container".equals(iofogDaemon != null ? iofogDaemon.toLowerCase() : null);
-        
-        if (!isContainer) {
-            // Agent running on host - use disk directory directly
-            return Configuration.getDiskDirectory() + "volumes/" + volumeName;
-        } else {
-            // Agent running in container - need to check volume mounting
-            try {
-                // Check if iofog-agent-directory volume exists
-                List<InspectVolumeResponse> volumes = dockerClient.listVolumesCmd().exec().getVolumes();
-                boolean volumeExists = volumes.stream()
-                    .anyMatch(vol -> "iofog-agent-directory".equals(vol.getName()));
-                
-                if (volumeExists) {
-                    // Volume exists - inspect it to get mount point
-                    InspectVolumeResponse volumeInfo = dockerClient.inspectVolumeCmd("iofog-agent-directory").exec();
-                    String mountPoint = volumeInfo.getMountpoint();
-                    return mountPoint + "/volumes/" + volumeName;
-                } else {
-                    // Volume doesn't exist - assume bind mount, use disk directory
+        // Legacy handling for $VolumeMount/ prefix (backward compatibility)
+        if (hostDestination.startsWith("$VolumeMount/")) {
+            String volumeName = hostDestination.substring("$VolumeMount/".length());
+            
+            // Check if agent is running in container
+            String iofogDaemon = System.getenv("IOFOG_DAEMON");
+            boolean isContainer = "container".equals(iofogDaemon != null ? iofogDaemon.toLowerCase() : null);
+            
+            if (!isContainer) {
+                // Agent running on host - use disk directory directly
+                return Configuration.getDiskDirectory() + "volumes/" + volumeName;
+            } else {
+                // Agent running in container - need to check volume mounting
+                try {
+                    // Check if iofog-agent-directory volume exists
+                    List<InspectVolumeResponse> volumes = dockerClient.listVolumesCmd().exec().getVolumes();
+                    boolean volumeExists = volumes.stream()
+                        .anyMatch(vol -> "iofog-agent-directory".equals(vol.getName()));
+                    
+                    if (volumeExists) {
+                        // Volume exists - inspect it to get mount point
+                        InspectVolumeResponse volumeInfo = dockerClient.inspectVolumeCmd("iofog-agent-directory").exec();
+                        String mountPoint = volumeInfo.getMountpoint();
+                        return mountPoint + "/volumes/" + volumeName;
+                    } else {
+                        // Volume doesn't exist - assume bind mount, use disk directory
+                        return Configuration.getDiskDirectory() + "volumes/" + volumeName;
+                    }
+                } catch (Exception e) {
+                    LoggingService.logWarning(MODULE_NAME, 
+                        "Error checking volume mount, falling back to disk directory: " + e.getMessage());
                     return Configuration.getDiskDirectory() + "volumes/" + volumeName;
                 }
-            } catch (Exception e) {
-                LoggingService.logWarning(MODULE_NAME, 
-                    "Error checking volume mount, falling back to disk directory: " + e.getMessage());
-                return Configuration.getDiskDirectory() + "volumes/" + volumeName;
             }
         }
+        
+        // Return as-is for BIND and VOLUME types
+        return hostDestination;
     }
 
     class ItemStatus {
@@ -1373,6 +1486,102 @@ public class DockerUtil {
             }
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error checking exec session status", e);
+            throw e;
+        }
+    }
+
+    /**
+     * Tails container logs using Docker API
+     * 
+     * @param containerId - ID of the container
+     * @param callback - Callback to handle log frames
+     * @param tailConfig - Configuration for log tailing (lines, follow, since, until)
+     * @throws Exception if log tailing fails
+     */
+    public void tailContainerLogs(String containerId, LogTailCallback callback, Map<String, Object> tailConfig) throws Exception {
+        LoggingService.logInfo(MODULE_NAME, "Starting to tail container logs: containerId=" + containerId);
+        try {
+            // Parse tail config with defaults
+            boolean follow = tailConfig != null && tailConfig.containsKey("follow") 
+                ? (Boolean) tailConfig.get("follow") : true;
+            Integer tailLines = tailConfig != null && tailConfig.containsKey("lines")
+                ? ((Number) tailConfig.get("lines")).intValue() : 100;
+            String since = tailConfig != null && tailConfig.containsKey("since")
+                ? (String) tailConfig.get("since") : null;
+            String until = tailConfig != null && tailConfig.containsKey("until")
+                ? (String) tailConfig.get("until") : null;
+
+            // Validate tail lines (1-10000)
+            if (tailLines != null && tailLines < 1) tailLines = 100;
+            if (tailLines != null && tailLines > 10000) tailLines = 10000;
+
+            LoggingService.logDebug(MODULE_NAME, "Tail config: follow=" + follow + 
+                ", lines=" + tailLines + 
+                ", since=" + since + 
+                ", until=" + until);
+
+            // Build log container command - use imported LogContainerCmd
+            LogContainerCmd logCmd = dockerClient.logContainerCmd(containerId)
+                .withStdOut(true)  // CRITICAL: Must be true to get stdout logs
+                .withStdErr(true)  // CRITICAL: Must be true to get stderr logs
+                .withTimestamps(false);
+
+            // Optimize parameter order and usage based on docker-java best practices:
+            // 1. Set tail/tailAll first for better performance
+            // 2. When since is provided WITHOUT follow, don't limit with tail - get all logs from since
+            // 3. When since is provided WITH follow, use tail to limit initial lines
+            // 4. Use withTailAll() when tailLines is null or very large
+            
+            boolean useTailAll = (tailLines == null || tailLines >= 10000);
+            boolean hasSince = (since != null && !since.isEmpty());
+            
+            if (hasSince && !follow) {
+                // When since is set without follow, get all logs from that timestamp
+                // Don't use tail to ensure we get all matching logs
+                LoggingService.logDebug(MODULE_NAME, "Using 'since' without follow - getting all logs from timestamp");
+            } else if (useTailAll) {
+                // Use withTailAll() when tail is very large or not specified
+                logCmd.withTailAll();
+                LoggingService.logDebug(MODULE_NAME, "Using withTailAll() - getting all available logs");
+            } else if (tailLines != null) {
+                // Use withTail() for specific number of lines
+                logCmd.withTail(tailLines);
+                LoggingService.logDebug(MODULE_NAME, "Using withTail(" + tailLines + ") - getting last " + tailLines + " lines");
+            }
+
+            // Set since parameter (if provided)
+            if (hasSince) {
+                try {
+                    // Parse ISO 8601 timestamp to Unix timestamp (seconds since epoch)
+                    java.time.Instant instant = java.time.Instant.parse(since);
+                    long unixTimestamp = instant.getEpochSecond();
+                    logCmd.withSince((int) unixTimestamp);
+                    LoggingService.logDebug(MODULE_NAME, "Using 'since' timestamp: " + since + " -> " + unixTimestamp);
+                } catch (Exception e) {
+                    LoggingService.logWarning(MODULE_NAME, "Invalid since timestamp format: " + since + " - " + e.getMessage());
+                }
+            }
+
+            // Add until if provided
+            if (until != null && !until.isEmpty()) {
+                try {
+                    java.time.Instant instant = java.time.Instant.parse(until);
+                    long unixTimestamp = instant.getEpochSecond();
+                    logCmd.withUntil((int) unixTimestamp);
+                    LoggingService.logDebug(MODULE_NAME, "Parsed until timestamp: " + until + " -> " + unixTimestamp);
+                } catch (Exception e) {
+                    LoggingService.logWarning(MODULE_NAME, "Invalid until timestamp format: " + until + " - " + e.getMessage());
+                }
+            }
+
+            // Set follow last (after all other parameters)
+            logCmd.withFollowStream(follow);
+
+            // Execute log command with callback
+            logCmd.exec(callback);
+            LoggingService.logInfo(MODULE_NAME, "Started tailing container logs: containerId=" + containerId);
+        } catch (Exception e) {
+            LoggingService.logError(MODULE_NAME, "Error tailing container logs: containerId=" + containerId, e);
             throw e;
         }
     }

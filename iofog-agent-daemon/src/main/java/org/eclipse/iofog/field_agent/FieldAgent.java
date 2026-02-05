@@ -100,6 +100,7 @@ public class FieldAgent implements IOFogModule {
     private ScheduledFuture<?> futureTask;
     private EdgeResourceManager edgeResourceManager;
     private VolumeMountManager volumeMountManager;
+    private LogSessionManager logSessionManager;
 
     private final Map<String, String> activeExecSessions = new ConcurrentHashMap<>();
     private final Map<String, ExecSessionCallback> execCallbacks = new ConcurrentHashMap<>();
@@ -496,6 +497,16 @@ public class FieldAgent implements IOFogModule {
                         }
                     } catch (Exception e) {
                         logError("Unable to update linked edge resources", e);
+                        resetChanges = false;
+                    }
+                }
+                if (changes.getBoolean("microserviceLogs", false) || changes.getBoolean("fogLogs", false)) {
+                    logDebug("Processing log sessions changes - microserviceLogs: " + changes.getBoolean("microserviceLogs", false) + 
+                        ", fogLogs: " + changes.getBoolean("fogLogs", false));
+                    try {
+                        handleLogSessions();
+                    } catch (Exception e) {
+                        logError("Unable to handle log sessions", e);
                         resetChanges = false;
                     }
                 }
@@ -1066,7 +1077,15 @@ public class FieldAgent implements IOFogModule {
                         .boxed()
                         .map(volumeMappingObj::getJsonObject)
                         .map(volumeMapping -> {
-                            VolumeMappingType volumeMappingType = volumeMapping.getString("type", "bind").equals("volume") ? VolumeMappingType.VOLUME : VolumeMappingType.BIND;
+                            VolumeMappingType volumeMappingType;
+                            String typeStr = volumeMapping.getString("type", "bind");
+                            if ("volumeMount".equals(typeStr)) {
+                                volumeMappingType = VolumeMappingType.VOLUME_MOUNT;
+                            } else if ("volume".equals(typeStr)) {
+                                volumeMappingType = VolumeMappingType.VOLUME;
+                            } else {
+                                volumeMappingType = VolumeMappingType.BIND;
+                            }
                             return new VolumeMapping(volumeMapping.getString("hostDestination"),
                                     volumeMapping.getString("containerDestination"),
                                     volumeMapping.getString("accessMode"),
@@ -1143,6 +1162,48 @@ public class FieldAgent implements IOFogModule {
 
             if (jsonObj.containsKey("memoryLimit") && !jsonObj.isNull("memoryLimit")) {
                 microservice.setMemoryLimit(jsonObj.getJsonNumber("memoryLimit").longValue());
+            }
+
+            JsonValue serviceAccountValue = jsonObj.get("serviceAccount");
+            if (serviceAccountValue != null && !serviceAccountValue.getValueType().equals(JsonValue.ValueType.NULL)) {
+                JsonObject serviceAccountObj = (JsonObject) serviceAccountValue;
+                String serviceAccountName = serviceAccountObj.containsKey("name") && !serviceAccountObj.isNull("name") 
+                    ? serviceAccountObj.getString("name") : null;
+                
+                RoleRef roleRef = null;
+                JsonValue roleRefValue = serviceAccountObj.get("roleRef");
+                if (roleRefValue != null && !roleRefValue.getValueType().equals(JsonValue.ValueType.NULL)) {
+                    JsonObject roleRefObj = (JsonObject) roleRefValue;
+                    String kind = roleRefObj.containsKey("kind") && !roleRefObj.isNull("kind") 
+                        ? roleRefObj.getString("kind") : null;
+                    String name = roleRefObj.containsKey("name") && !roleRefObj.isNull("name") 
+                        ? roleRefObj.getString("name") : null;
+                    if (kind != null && name != null) {
+                        roleRef = new RoleRef(kind, name);
+                    }
+                }
+                
+                List<Rule> rules = null;
+                JsonValue rulesValue = serviceAccountObj.get("rules");
+                if (rulesValue != null && !rulesValue.getValueType().equals(JsonValue.ValueType.NULL)) {
+                    JsonArray rulesArray = (JsonArray) rulesValue;
+                    if (rulesArray.size() > 0) {
+                        rules = IntStream.range(0, rulesArray.size())
+                            .boxed()
+                            .map(rulesArray::getJsonObject)
+                            .map(ruleObj -> {
+                                List<String> apiGroups = getStringList(ruleObj.get("apiGroups"));
+                                List<String> resources = getStringList(ruleObj.get("resources"));
+                                List<String> verbs = getStringList(ruleObj.get("verbs"));
+                                return new Rule(apiGroups, resources, verbs);
+                            })
+                            .collect(toList());
+                    }
+                }
+                
+                if (serviceAccountName != null || roleRef != null || rules != null) {
+                    microservice.setServiceAccount(new ServiceAccount(serviceAccountName, roleRef, rules));
+                }
             }
 
             try {
@@ -1649,6 +1710,7 @@ public class FieldAgent implements IOFogModule {
                 // Set initial configuration
                 Configuration.setIofogUuid(provisioningResult.getString("uuid"));
                 Configuration.setPrivateKey(provisioningResult.getString("privateKey"));
+                Configuration.setNamespace(provisioningResult.getString("namespace"));
                 Configuration.saveConfigUpdates();
                 Configuration.updateConfigBackUpFile();
 
@@ -1748,6 +1810,7 @@ public class FieldAgent implements IOFogModule {
             // Store configuration values before clearing them
             String iofogUuid = Configuration.getIofogUuid();
             String privateKey = Configuration.getPrivateKey();
+            String namespace = Configuration.getNamespace();
             
             // Attempt deprovision request if not token expired
             boolean deprovisionRequestSuccessful = false;
@@ -1780,6 +1843,7 @@ public class FieldAgent implements IOFogModule {
                 // Configuration.setAccessToken("");
                 Configuration.setPrivateKey("");
                 Configuration.saveConfigUpdates();
+                Configuration.setNamespace("default");
                 logDebug("Configuration cleared successfully");
                 
                 // Reset JWT Manager to clear static state and allow re-initialization with new credentials
@@ -1912,6 +1976,7 @@ public class FieldAgent implements IOFogModule {
         sshProxyManager = new SshProxyManager(new SshConnection());
         edgeResourceManager = EdgeResourceManager.getInstance();
         volumeMountManager = VolumeMountManager.getInstance();
+        logSessionManager = new LogSessionManager();
         boolean isConnected = ping();
         getFogConfig();
         if (!notProvisioned()) {
@@ -2461,5 +2526,135 @@ public class FieldAgent implements IOFogModule {
         } catch (Exception e) {
             LoggingService.logError(MODULE_NAME, "Error handling exec session close", e);
         }
+    }
+
+    /**
+     * Fetches log sessions from controller
+     * @return List of LogSession objects
+     * @throws Exception if fetch fails
+     */
+    private List<LogSession> fetchLogSessions() throws Exception {
+        logDebug("Start fetching log sessions from controller");
+        List<LogSession> sessions = new ArrayList<>();
+        
+        if (notProvisioned() || !isControllerConnected(false)) {
+            logDebug("Not provisioned or not connected, returning empty list");
+            return sessions;
+        }
+
+        // Check thread interruption before making request
+        if (Thread.currentThread().isInterrupted()) {
+            logWarning("Thread interrupted before making log sessions request");
+            throw new InterruptedException("Thread interrupted before request");
+        }
+
+        try {
+            logDebug("Making request to controller for log sessions");
+            JsonObject response = orchestrator.request("logs/sessions", RequestType.GET, null, null);
+            logDebug("Received response from controller, parsing log sessions");
+            if (response != null && response.containsKey("logSessions")) {
+                JsonArray logSessionsArray = response.getJsonArray("logSessions");
+                if (logSessionsArray != null) {
+                    for (int i = 0; i < logSessionsArray.size(); i++) {
+                        JsonObject sessionJson = logSessionsArray.getJsonObject(i);
+                        LogSession session = parseLogSession(sessionJson);
+                        if (session != null) {
+                            sessions.add(session);
+                        }
+                    }
+                }
+            }
+            logDebug("Fetched " + sessions.size() + " log sessions from controller");
+        } catch (CertificateException | SSLHandshakeException e) {
+            verificationFailed(e);
+            logError("Unable to get log sessions due to broken certificate",
+                    new AgentSystemException(e.getMessage(), e));
+            throw e;
+        } catch (Exception e) {
+            logError("Unable to get log sessions", new AgentSystemException(e.getMessage(), e));
+            throw e;
+        }
+        
+        logDebug("Finished fetching log sessions");
+        return sessions;
+    }
+
+    /**
+     * Parses a JSON object into a LogSession
+     */
+    private LogSession parseLogSession(JsonObject jsonObj) {
+        try {
+            String sessionId = jsonObj.getString("sessionId");
+            String microserviceUuid = jsonObj.containsKey("microserviceUuid") && !jsonObj.isNull("microserviceUuid") 
+                ? jsonObj.getString("microserviceUuid") : null;
+            String iofogUuid = jsonObj.containsKey("iofogUuid") && !jsonObj.isNull("iofogUuid")
+                ? jsonObj.getString("iofogUuid") : null;
+            String status = jsonObj.containsKey("status") ? jsonObj.getString("status") : "PENDING";
+            boolean agentConnected = jsonObj.containsKey("agentConnected") ? jsonObj.getBoolean("agentConnected") : false;
+
+            // Parse tailConfig
+            Map<String, Object> tailConfig = new HashMap<>();
+            if (jsonObj.containsKey("tailConfig") && !jsonObj.isNull("tailConfig")) {
+                JsonObject tailConfigJson = jsonObj.getJsonObject("tailConfig");
+                if (tailConfigJson != null) {
+                    // Parse tailConfig fields
+                    if (tailConfigJson.containsKey("lines")) {
+                        tailConfig.put("lines", tailConfigJson.getInt("lines"));
+                    }
+                    if (tailConfigJson.containsKey("follow")) {
+                        tailConfig.put("follow", tailConfigJson.getBoolean("follow"));
+                    }
+                    if (tailConfigJson.containsKey("since") && !tailConfigJson.isNull("since")) {
+                        tailConfig.put("since", tailConfigJson.getString("since"));
+                    }
+                    if (tailConfigJson.containsKey("until") && !tailConfigJson.isNull("until")) {
+                        tailConfig.put("until", tailConfigJson.getString("until"));
+                    }
+                }
+            }
+
+            LogSession session = new LogSession(sessionId, microserviceUuid, iofogUuid, tailConfig, status, agentConnected);
+            return session;
+        } catch (Exception e) {
+            logError("Error parsing log session from JSON", new AgentSystemException(e.getMessage(), e));
+            return null;
+        }
+    }
+
+    /**
+     * Handles log sessions changes
+     */
+    private void handleLogSessions() {
+        logDebug("Start handling log sessions");
+        
+        // Check if thread is already interrupted
+        if (Thread.currentThread().isInterrupted()) {
+            logWarning("Thread already interrupted before handling log sessions");
+            return;
+        }
+        
+        try {
+            List<LogSession> sessions = fetchLogSessions();
+            if (logSessionManager != null) {
+                logSessionManager.handleLogSessions(sessions);
+            } else {
+                logError("LogSessionManager is not initialized", new AgentSystemException("LogSessionManager is null", null));
+            }
+        } catch (AgentSystemException e) {
+            // Check if it's an interruption (might be transient)
+            if (e.getMessage() != null && e.getMessage().contains("Request interrupted")) {
+                logWarning("Log session fetch was interrupted (may be transient): " + e.getMessage());
+                // Don't reset changes flag for interruptions - allow retry on next change detection
+            } else {
+                logError("Unable to handle log sessions", e);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logWarning("Thread interrupted while handling log sessions: " + e.getMessage());
+            // Don't reset changes flag for interruptions - allow retry on next change detection
+        } catch (Exception e) {
+            logError("Unable to handle log sessions", e);
+        }
+        logDebug("Finished handling log sessions");
     }
 }

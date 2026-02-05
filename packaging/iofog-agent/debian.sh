@@ -20,37 +20,13 @@ useradd -r -U -s /usr/bin/nologin iofog-agent
 usermod -aG adm,sudo iofog-agent
 echo "Added ioFog-Agent user and group"
 
-if [ -f /etc/iofog-agent/config.xml ];
+if [ -f /etc/iofog-agent/config.yaml ];
 then
-   rm /etc/iofog-agent/config_new.xml
+   rm /etc/iofog-agent/config_new.yaml
 else
-   mv /etc/iofog-agent/config_new.xml /etc/iofog-agent/config.xml
+   mv /etc/iofog-agent/config_new.yaml /etc/iofog-agent/config.yaml
 fi
-echo "Check for config.xml"
-
-if [ -f /etc/iofog-agent/config-development.xml ];
-then
-  rm /etc/iofog-agent/config-development_new.xml
-else
-  mv /etc/iofog-agent/config-development_new.xml /etc/iofog-agent/config-development.xml
-fi
-#echo "Check for config-development.xml"
-
-if [ -f /etc/iofog-agent/config-production.xml ];
-then
-  rm /etc/iofog-agent/config-production_new.xml
-else
-  mv /etc/iofog-agent/config-production_new.xml /etc/iofog-agent/config-production.xml
-fi
-#echo "Check for config-production.xml"
-
-if [ -f /etc/iofog-agent/config-switcher.xml ];
-then
-  rm /etc/iofog-agent/config-switcher_new.xml
-else
-  mv /etc/iofog-agent/config-switcher_new.xml /etc/iofog-agent/config-switcher.xml
-fi
-#echo "Check for config-switcher.xml"
+echo "Check for config.yaml"
 
 if [ -f /etc/iofog-agent/cert.crt ];
 then
@@ -59,14 +35,6 @@ else
    mv /etc/iofog-agent/cert_new.crt /etc/iofog-agent/cert.crt
 fi
 echo "Check for cert.crt"
-
-if [ -f /etc/iofog-agent/config-bck.xml ];
-then
-   rm /etc/iofog-agent/config-bck_new.xml
-else
-   mv /etc/iofog-agent/config-bck_new.xml /etc/iofog-agent/config-bck.xml
-fi
-echo "Check for config-bck.xml"
 
 </dev/urandom tr -dc A-Za-z0-9 | head -c32 > /etc/iofog-agent/local-api
 
