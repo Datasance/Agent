@@ -23,13 +23,14 @@ public class Microservice {
 
     public static final Object deleteLock = new Object();
     private final String microserviceUuid; //container name
+    private final String microserviceName;
+    private final String applicationName;
     private final String imageName;
     private List<PortMapping> portMappings;
     private String config;
     private String runAsUser;
     private String platform;
     private String runtime;
-    private List<String> routes;
     private String containerId;
     private int registryId;
     private String containerIpAddress;
@@ -46,8 +47,8 @@ public class Microservice {
     private List<String> capAdd;
     private List<String> capDrop;
     private List<String> extraHosts;
-    private boolean isConsumer;
     private boolean isRouter;
+    private boolean isNats;
     private String pidMode;
     private String ipcMode;
     private boolean execEnabled;
@@ -61,8 +62,10 @@ public class Microservice {
     private Healthcheck healthcheck;
     private ServiceAccount serviceAccount;
 
-    public Microservice(String microserviceUuid, String imageName) {
+    public Microservice(String microserviceUuid, String imageName, String microserviceName, String applicationName) {
         this.microserviceUuid = microserviceUuid;
+        this.microserviceName = microserviceName;
+        this.applicationName = applicationName;
         this.imageName = imageName;
         containerId = "";
     }
@@ -149,6 +152,14 @@ public class Microservice {
 
     public String getMicroserviceUuid() {
         return microserviceUuid;
+    }
+
+    public String getMicroserviceName() {
+        return microserviceName;
+    }
+
+    public String getApplicationName() {
+        return applicationName;
     }
 
     public String getImageName() {
@@ -260,28 +271,20 @@ public class Microservice {
         return microserviceUuid.hashCode();
     }
 
-    public List<String> getRoutes() {
-        return routes;
-    }
-
-    public void setRoutes(List<String> routes) {
-        this.routes = routes;
-    }
-
-    public boolean isConsumer() {
-        return isConsumer;
-    }
-
-    public void setConsumer(boolean consumer) {
-        isConsumer = consumer;
-    }
-
     public boolean isRouter() {
         return isRouter;
     }
 
     public void setRouter(boolean router) {
         isRouter = router;
+    }
+    
+    public boolean isNats() {
+        return isNats;
+    }
+
+    public void setNats(boolean nats) {
+        isNats = nats;
     }
 
     public String getPidMode() {

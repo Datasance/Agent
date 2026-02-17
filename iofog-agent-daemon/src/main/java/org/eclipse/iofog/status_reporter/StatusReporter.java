@@ -15,7 +15,6 @@ package org.eclipse.iofog.status_reporter;
 import org.eclipse.iofog.exception.AgentSystemException;
 import org.eclipse.iofog.field_agent.FieldAgentStatus;
 import org.eclipse.iofog.local_api.LocalApiStatus;
-import org.eclipse.iofog.message_bus.MessageBusStatus;
 import org.eclipse.iofog.process_manager.ProcessManagerStatus;
 import org.eclipse.iofog.proxy.SshProxyManagerStatus;
 import org.eclipse.iofog.resource_consumption_manager.ResourceConsumptionManagerStatus;
@@ -48,7 +47,6 @@ public final class StatusReporter {
 	private static final StatusReporterStatus statusReporterStatus = new StatusReporterStatus();
 	private static final ProcessManagerStatus processManagerStatus = new ProcessManagerStatus();
 	private static final LocalApiStatus localApiStatus = new LocalApiStatus();
-	private static final MessageBusStatus messageBusStatus = new MessageBusStatus();
 	private static final SshProxyManagerStatus sshManagerStatus = new SshProxyManagerStatus();
 	private static final VolumeMountManagerStatus volumeMountManagerStatus = new VolumeMountManagerStatus();
 
@@ -116,7 +114,6 @@ public final class StatusReporter {
 		result.append("\\nCPU Usage                   : about ").append(String.format("%.2f %%", resourceConsumptionManagerStatus.getCpuUsage()));
 		result.append("\\nRunning Microservices       : ").append(processManagerStatus.getRunningMicroservicesCount());
 		result.append("\\nConnection to Controller    : ").append(connectionStatus);
-		result.append(String.format(Locale.US, "\\nMessages Processed          : about %,d", messageBusStatus.getProcessedMessages()));
 		result.append("\\nSystem Time                 : ").append(dateFormat.format(cal.getTime()));
 
 		result.append("\\nSystem Available Disk       : ").append(String.format("%.2f MB (%.2f %%)", availableDisk, ((availableDisk * Constants.MiB) / getTotalDisk()) * 100.0f));
@@ -143,12 +140,6 @@ public final class StatusReporter {
 		LoggingService.logDebug(MODULE_NAME, "set Resource Manager Status");
 		statusReporterStatus.setLastUpdate(System.currentTimeMillis());
 		return resourceManagerStatus;
-	}
-
-	public static MessageBusStatus setMessageBusStatus() {
-		LoggingService.logDebug(MODULE_NAME, "set Message Bus Status");
-		statusReporterStatus.setLastUpdate(System.currentTimeMillis());
-		return messageBusStatus;
 	}
 
 	public static FieldAgentStatus setFieldAgentStatus() {
@@ -195,10 +186,6 @@ public final class StatusReporter {
 
 	public static SupervisorStatus getSupervisorStatus() {
 		return supervisorStatus;
-	}
-
-	public static MessageBusStatus getMessageBusStatus() {
-		return messageBusStatus;
 	}
 
 	public static ResourceConsumptionManagerStatus getResourceConsumptionManagerStatus() {

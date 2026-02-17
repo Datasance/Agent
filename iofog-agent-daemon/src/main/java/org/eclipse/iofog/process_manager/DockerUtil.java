@@ -894,6 +894,9 @@ public class DockerUtil {
         if (microservice.isRouter()) {
             labels.put("iofog-router", "true");
         }
+        if (microservice.isNats()) {
+            labels.put("iofog-nats", "true");
+        }
         HostConfig hostConfig = HostConfig.newHostConfig();
         hostConfig.withPortBindings(portBindings);
         hostConfig.withLogConfig(containerLog);
@@ -913,6 +916,15 @@ public class DockerUtil {
             .withEnv(envVars)
             .withName(Constants.IOFOG_DOCKER_CONTAINER_NAME_PREFIX + microservice.getMicroserviceUuid())
             .withLabels(labels);
+
+        // When not in host network mode, add network-scoped DNS alias applicationName.microserviceName for service discovery
+        if (!microservice.isHostNetworkMode()) {
+            String applicationName = microservice.getApplicationName();
+            String microserviceName = microservice.getMicroserviceName();
+            if (applicationName != null && !applicationName.isEmpty() && microserviceName != null && !microserviceName.isEmpty()) {
+                cmd = cmd.withAliases(applicationName + "." + microserviceName);
+            }
+        }
 
         if (volumes.size() > 0) {
             cmd = cmd.withVolumes(volumes);
