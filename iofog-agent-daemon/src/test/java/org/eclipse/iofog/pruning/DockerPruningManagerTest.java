@@ -83,7 +83,7 @@ public class DockerPruningManagerTest {
         images.add(wantedImage);
         Mockito.when(dockerUtil.getImages()).thenReturn(images);
         List<Microservice> latestMicroservices = new ArrayList<>();
-        Microservice microservice = new Microservice("uuid", "edgeworx/calibration-sensors-arm");
+        Microservice microservice = new Microservice("uuid", "edgeworx/calibration-sensors-arm", "microservice-name", "application-name");
         latestMicroservices.add(microservice);
         Mockito.when(microserviceManager.getLatestMicroservices()).thenReturn(latestMicroservices);
         pruneResponse = mock(PruneResponse.class);
