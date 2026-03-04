@@ -21,7 +21,6 @@ import org.eclipse.iofog.exception.AgentUserException;
 import org.eclipse.iofog.field_agent.FieldAgent;
 import org.eclipse.iofog.gps.GpsMode;
 import org.eclipse.iofog.gps.GpsWebHandler;
-import org.eclipse.iofog.message_bus.MessageBus;
 import org.eclipse.iofog.network.IOFogNetworkInterfaceManager;
 import org.eclipse.iofog.process_manager.ProcessManager;
 import org.eclipse.iofog.pruning.DockerPruningManager;
@@ -120,11 +119,6 @@ public final class Configuration {
     private static String dockerApiVersion;
     private static int setSystemTimeFreqSeconds;
     private static int monitorSshTunnelStatusFreqSeconds;
-    private static String routerHost;
-    private static int routerPort;
-    private static String caCert;
-    private static String tlsCert;
-    private static String tlsKey;
     private static String routerUuid;
     private static boolean isRouterInterior;
     private static boolean devMode;
@@ -145,28 +139,12 @@ public final class Configuration {
         Configuration.routerUuid = routerUuid;
     }
 
-    public static String getRouterHost() {
-        return routerHost;
-    }
-
     public static boolean isRouterInterior() {
         return isRouterInterior;
     }
 
     public static void setRouterInterior(boolean isRouterInterior) {
         Configuration.isRouterInterior = isRouterInterior;
-    }
-
-    public static void setRouterHost(String routerHost) {
-        Configuration.routerHost = routerHost;
-    }
-
-    public static int getRouterPort() {
-        return routerPort;
-    }
-
-    public static void setRouterPort(int routerPort) {
-        Configuration.routerPort = routerPort;
     }
 
     private static void updateAutomaticConfigParams() {
@@ -480,7 +458,6 @@ public final class Configuration {
         ProcessManager.getInstance().instanceConfigUpdated();
         ResourceConsumptionManager.getInstance().instanceConfigUpdated();
         DockerPruningManager.getInstance().changePruningFreqInterval();
-        MessageBus.getInstance().instanceConfigUpdated();
         EdgeGuardManager.getInstance().changeEdgeGuardFreqInterval();
 //        LoggingService.instanceConfigUpdated();
 
@@ -849,14 +826,6 @@ public final class Configuration {
                         setNode(SECURE_MODE, value);
                         setSecureMode(!value.equals("off"));
                         break;
-                    case ROUTER_HOST:
-                        LoggingService.logInfo(MODULE_NAME, "Setting router host");
-                        setRouterHost(value);
-                        break;
-                    case ROUTER_PORT:
-                        LoggingService.logInfo(MODULE_NAME, "Setting router port");
-                        setRouterPort(Integer.parseInt(value));
-                        break;
                     case DOCKER_PRUNING_FREQUENCY:
                         LoggingService.logInfo(MODULE_NAME, "Setting docker pruning frequency");
                         try {
@@ -911,18 +880,6 @@ public final class Configuration {
                     case TIME_ZONE:
                         LoggingService.logInfo(MODULE_NAME, "Setting timeZone");
                         setTimeZone(value);
-                        break;
-                    case CA_CERT:
-                        LoggingService.logInfo(MODULE_NAME, "Setting CA cert");
-                        setCaCert(value);
-                        break;
-                    case TLS_CERT:
-                        LoggingService.logInfo(MODULE_NAME, "Setting TLS cert");
-                        setTlsCert(value);
-                        break;
-                    case TLS_KEY:
-                        LoggingService.logInfo(MODULE_NAME, "Setting TLS key");
-                        setTlsKey(value);
                         break;
                     default:
                         throw new ConfigurationItemException("Invalid parameter -" + option);
@@ -1225,17 +1182,12 @@ public final class Configuration {
         configureArch(getNode(ARCH));
         setSecureMode(!getNode(SECURE_MODE).equals("off"));
         setIpAddressExternal(GpsWebHandler.getExternalIp());
-        setRouterHost(getNode(ROUTER_HOST));
-        setRouterPort(!getNode(ROUTER_PORT).equals("") ? Integer.parseInt(getNode(ROUTER_PORT)) : 0);
 
         setDockerPruningFrequency(Long.parseLong(getNode(DOCKER_PRUNING_FREQUENCY)));
         setAvailableDiskThreshold(Long.parseLong(getNode(AVAILABLE_DISK_THRESHOLD)));
         setReadyToUpgradeScanFrequency(Integer.parseInt(getNode(READY_TO_UPGRADE_SCAN_FREQUENCY)));
         setDevMode(!getNode(DEV_MODE).equals("off"));
         configureTimeZone(getNode(TIME_ZONE));
-        setCaCert(getNode(CA_CERT));
-        setTlsCert(getNode(TLS_CERT));
-        setTlsKey(getNode(TLS_KEY));
         setNamespace(getNode(NAMESPACE));
         
         try {
@@ -1560,7 +1512,6 @@ public final class Configuration {
             FieldAgent.getInstance().instanceConfigUpdated();
             ProcessManager.getInstance().instanceConfigUpdated();
             ResourceConsumptionManager.getInstance().instanceConfigUpdated();
-            MessageBus.getInstance().instanceConfigUpdated();
 
             return "Successfully switched to new configuration.";
         } catch (Exception e) {
@@ -1575,7 +1526,6 @@ public final class Configuration {
                 FieldAgent.getInstance().instanceConfigUpdated();
                 ProcessManager.getInstance().instanceConfigUpdated();
                 ResourceConsumptionManager.getInstance().instanceConfigUpdated();
-                MessageBus.getInstance().instanceConfigUpdated();
 
                 return "Error while loading new config file, falling back to current configuration";
             } catch (Exception fatalException) {
@@ -1678,30 +1628,6 @@ public final class Configuration {
             setNode(PRIVATE_KEY, privateKey);
             Configuration.privateKey = privateKey;
             LoggingService.logDebug(MODULE_NAME, "Finished set private key");
-    }
-
-    public static String getCaCert() {
-        return caCert;
-    }
-
-    public static void setCaCert(String caCert) {
-        Configuration.caCert = caCert;
-    }
-
-    public static String getTlsCert() {
-        return tlsCert;
-    }
-
-    public static void setTlsCert(String tlsCert) {
-        Configuration.tlsCert = tlsCert;
-    }
-
-    public static String getTlsKey() {
-        return tlsKey;
-    }
-
-    public static void setTlsKey(String tlsKey) {
-        Configuration.tlsKey = tlsKey;
     }
 
     public static String getNamespace() {

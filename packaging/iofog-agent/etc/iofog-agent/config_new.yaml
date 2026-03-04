@@ -16,8 +16,6 @@ currentProfile: default  # default | development | production
 profiles:
   default:
     privateKey: ""
-    routerHost: ""
-    routerPort: ""
     routerUuid: ""
     controllerUrl: "http://localhost:54421/api/v3/"
     iofogUuid: ""
@@ -50,15 +48,10 @@ profiles:
     upgradeScanFrequency: "24"
     timeZone: ""
     namespace: "default"
-    caCert: ""
-    tlsCert: ""
-    tlsKey: ""
     hwSignature: ""
 
   development:
     privateKey: ""
-    routerHost: ""
-    routerPort: ""
     routerUuid: ""
     controllerUrl: "http://localhost:51121/api/v3/"
     iofogUuid: ""
@@ -91,15 +84,10 @@ profiles:
     upgradeScanFrequency: "24"
     timeZone: ""
     namespace: "default"
-    caCert: ""
-    tlsCert: ""
-    tlsKey: ""
     hwSignature: ""
 
   production:
     privateKey: ""
-    routerHost: ""
-    routerPort: ""
     routerUuid: ""
     controllerUrl: "http://localhost:54421/api/v3/"
     iofogUuid: ""
@@ -132,7 +120,4 @@ profiles:
     upgradeScanFrequency: "24"
     timeZone: ""
     namespace: "default"
-    caCert: ""
-    tlsCert: ""
-    tlsKey: ""
     hwSignature: ""

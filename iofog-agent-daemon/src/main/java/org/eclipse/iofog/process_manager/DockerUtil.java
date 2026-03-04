@@ -115,8 +115,8 @@ public class DockerUtil {
                 .withDockerHttpClient(httpClient)
                 .build();
             
-            // Ensure namespace network exists during initialization
-            ensureNamespaceNetworkExists();
+            // Ensure ioFog network exists during initialization
+            ensureIoFogNetworkExists();
             
         } catch (Exception e) {
             logError(MODULE_NAME,"Docker client initialization failed", new AgentUserException(e.getMessage(), e));
@@ -894,6 +894,9 @@ public class DockerUtil {
         if (microservice.isRouter()) {
             labels.put("iofog-router", "true");
         }
+        if (microservice.isNats()) {
+            labels.put("iofog-nats", "true");
+        }
         HostConfig hostConfig = HostConfig.newHostConfig();
         hostConfig.withPortBindings(portBindings);
         hostConfig.withLogConfig(containerLog);
@@ -913,6 +916,15 @@ public class DockerUtil {
             .withEnv(envVars)
             .withName(Constants.IOFOG_DOCKER_CONTAINER_NAME_PREFIX + microservice.getMicroserviceUuid())
             .withLabels(labels);
+
+        // When not in host network mode, add network-scoped DNS alias applicationName.microserviceName for service discovery
+        if (!microservice.isHostNetworkMode()) {
+            String applicationName = microservice.getApplicationName();
+            String microserviceName = microservice.getMicroserviceName();
+            if (applicationName != null && !applicationName.isEmpty() && microserviceName != null && !microserviceName.isEmpty()) {
+                cmd = cmd.withAliases(applicationName + "." + microserviceName);
+            }
+        }
 
         if (volumes.size() > 0) {
             cmd = cmd.withVolumes(volumes);
@@ -956,13 +968,13 @@ public class DockerUtil {
                     hostConfig.withNetworkMode("host");
                 }
             } else if(hosts.length > 0) {
-                hostConfig.withNetworkMode(getNamespaceNetworkName()).withExtraHosts(hosts);
+                hostConfig.withNetworkMode("iofog").withExtraHosts(hosts);
             }
         } else if (SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) {
             if(microservice.isHostNetworkMode()){
                 hostConfig.withNetworkMode("host");
             } else if(hosts.length > 0) {
-                hostConfig.withNetworkMode(getNamespaceNetworkName()).withExtraHosts(hosts);
+                hostConfig.withNetworkMode("iofog").withExtraHosts(hosts);
             }
         }
 
@@ -1140,54 +1152,29 @@ public class DockerUtil {
     }
 
     /**
-     * Checks if the "namespace" network exists and creates it if it doesn't
-     * Skips creation if namespace is not set yet (will be set after provisioning)
-     * @return true if network exists or was created successfully, or if namespace not set yet; false on error
+     * Checks if the "iofog" bridge network exists and creates it if it doesn't.
+     * @return true if network exists or was created successfully, false otherwise
      */
-    public boolean ensureNamespaceNetworkExists() {
+    public boolean ensureIoFogNetworkExists() {
         try {
-            String namespace = Configuration.getNamespace();
-            
-            // Skip network creation if namespace is not set yet (will be set after provisioning)
-            if (namespace == null || namespace.trim().isEmpty()) {
-                LoggingService.logDebug(MODULE_NAME, "Namespace not set yet, skipping network creation. Network will be created after provisioning.");
-                return true; // Return true to not fail initialization
-            }
-            
-            // Prefix network name to avoid conflicts with reserved Docker network names
-            String networkName = getNamespaceNetworkName();
-            
             List<Network> networks = dockerClient.listNetworksCmd().exec();
-            boolean namespaceNetworkExists = networks.stream()
-                .anyMatch(network -> networkName.equals(network.getName()));
+            boolean ioFogNetworkExists = networks.stream()
+                .anyMatch(network -> "iofog".equals(network.getName()));
 
-            if (!namespaceNetworkExists) {
-                LoggingService.logInfo(MODULE_NAME, "Creating namespace bridge network: " + networkName);
+            if (!ioFogNetworkExists) {
+                LoggingService.logInfo(MODULE_NAME, "Creating 'iofog' bridge network");
                 dockerClient.createNetworkCmd()
-                    .withName(networkName)
+                    .withName("iofog")
                     .withDriver("bridge")
                     .exec();
-                LoggingService.logInfo(MODULE_NAME, "Successfully created namespace bridge network: " + networkName);
+                LoggingService.logInfo(MODULE_NAME, "Successfully created 'iofog' bridge network");
             }
             return true;
         } catch (Exception e) {
-            LoggingService.logError(MODULE_NAME, "Failed to ensure 'namespace' network exists", 
+            LoggingService.logError(MODULE_NAME, "Failed to ensure 'iofog' network exists",
                 new AgentSystemException(e.getMessage(), e));
             return false;
         }
-    }
-
-    /**
-     * Gets the prefixed network name for the current namespace
-     * Prefixes with "iofog-" to avoid conflicts with reserved Docker network names
-     * @return Prefixed network name (e.g., "iofog-default", "iofog-production")
-     */
-    public static String getNamespaceNetworkName() {
-        String namespace = Configuration.getNamespace();
-        if (namespace == null || namespace.trim().isEmpty()) {
-            return "iofog-default";
-        }
-        return "iofog-" + namespace;
     }
 
     /**

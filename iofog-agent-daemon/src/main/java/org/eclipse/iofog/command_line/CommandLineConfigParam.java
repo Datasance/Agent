@@ -57,17 +57,12 @@ public enum CommandLineConfigParam {
     POST_DIAGNOSTICS_FREQ ("10", "df", "post_diagnostics_freq", "postdiagnosticsfreq"),
     ARCH ("auto", "ft", "arch", ""),
     SECURE_MODE ("off", "sec", "secure_mode", ""),
-    ROUTER_HOST ("", "", "router_host", "routerHost"),
-    ROUTER_PORT ("0", "", "router_port", "routerPort"),
     DOCKER_PRUNING_FREQUENCY ("1", "pf", "docker_pruning_freq", "dockerPruningFrequency"),
     AVAILABLE_DISK_THRESHOLD ("20", "dt", "available_disk_threshold", "availableDiskThreshold"),
     READY_TO_UPGRADE_SCAN_FREQUENCY ("24", "uf", "upgrade_scan_frequency", "readyToUpgradeScanFrequency"),
     DEV_MODE ("off", "dev", "dev_mode", ""),
     TIME_ZONE("", "tz", "time_zone", "timeZone"),
     NAMESPACE("default", "", "namespace", "namespace"),
-    CA_CERT("", "", "ca_cert", "caCert"),
-    TLS_CERT("", "", "tls_cert", "tlsCert"),
-    TLS_KEY("", "", "tls_key", "tlsKey"),
     HW_SIGNATURE("", "", "hw_signature", "hwSignature");
 
     private final String commandName;

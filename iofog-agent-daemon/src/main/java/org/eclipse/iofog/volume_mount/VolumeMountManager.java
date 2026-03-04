@@ -484,10 +484,15 @@ public class VolumeMountManager {
             data.forEach((key, value) -> {
                 try {
                     Path keyLink = mountPath.resolve(key);
+                    Path keyRelativePath = Paths.get(key);
                     if (Files.exists(keyLink)) {
                         Files.delete(keyLink);
                     }
-                    Files.createSymbolicLink(keyLink, Paths.get(DATA_SYMLINK + "/" + key));
+                    Path parentDir = keyLink.getParent();
+                    if (parentDir != null) {
+                        Files.createDirectories(parentDir);
+                    }
+                    Files.createSymbolicLink(keyLink, buildRelativeDataTarget(mountPath, keyLink, keyRelativePath));
                     setSymlinkPermissions(keyLink);
                 } catch (Exception e) {
                     LoggingService.logError(MODULE_NAME, "Error creating symlink for key: " + key, 
@@ -600,10 +605,15 @@ public class VolumeMountManager {
             data.forEach((key, value) -> {
                 try {
                     Path keyLink = mountPath.resolve(key);
+                    Path keyRelativePath = Paths.get(key);
                     if (Files.exists(keyLink)) {
                         Files.delete(keyLink);
                     }
-                    Files.createSymbolicLink(keyLink, Paths.get(DATA_SYMLINK + "/" + key));
+                    Path parentDir = keyLink.getParent();
+                    if (parentDir != null) {
+                        Files.createDirectories(parentDir);
+                    }
+                    Files.createSymbolicLink(keyLink, buildRelativeDataTarget(mountPath, keyLink, keyRelativePath));
                     setSymlinkPermissions(keyLink);
                 } catch (Exception e) {
                     LoggingService.logError(MODULE_NAME, "Error updating symlink for key: " + key, 
@@ -710,6 +720,114 @@ public class VolumeMountManager {
             }
         } catch (Exception e) {
             LoggingService.logWarning(MODULE_NAME, "Error during version cleanup: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Recursively copies all files from source versioned directory to target, preserving directory structure.
+     * Handles nested keys (e.g. xxx/yyy.creds).
+     */
+    private void copyVersionedDirRecursively(Path sourceVersionedDir, Path targetVersionedDir, VolumeMountType type) {
+        try {
+            Files.walk(sourceVersionedDir, Integer.MAX_VALUE)
+                .filter(Files::isRegularFile)
+                .forEach(sourceFile -> {
+                    try {
+                        Path relativePath = sourceVersionedDir.relativize(sourceFile);
+                        Path targetFile = targetVersionedDir.resolve(relativePath);
+                        Path parentDir = targetFile.getParent();
+                        if (parentDir != null) {
+                            Files.createDirectories(parentDir);
+                        }
+                        Files.copy(sourceFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
+                        setFilePermissions(targetFile, type);
+                    } catch (Exception e) {
+                        LoggingService.logWarning(MODULE_NAME,
+                            "Error copying file: " + sourceFile + " - " + e.getMessage());
+                    }
+                });
+        } catch (IOException e) {
+            LoggingService.logWarning(MODULE_NAME, "Error walking source versioned dir: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Builds a symlink target to ..data/<key> relative to the symlink's parent directory.
+     * This keeps nested keys valid (e.g. key: dir/file -> target: ../..data/dir/file).
+     */
+    private Path buildRelativeDataTarget(Path mountPath, Path keyLink, Path keyRelativePath) {
+        Path keyParent = keyLink.getParent();
+        if (keyParent == null) {
+            keyParent = mountPath;
+        }
+        Path dataFilePath = mountPath.resolve(DATA_SYMLINK).resolve(keyRelativePath);
+        return keyParent.relativize(dataFilePath);
+    }
+    
+    /**
+     * Recursively creates key symlinks under mountPath for every file in versionedDir.
+     * Each file at versionedDir/relPath gets a symlink at mountPath/relPath -> ..data/relPath.
+     * Handles nested keys (e.g. xxx/yyy.creds).
+     */
+    private void createKeySymlinksRecursively(Path mountPath, Path versionedDir) {
+        try {
+            Files.walk(versionedDir, Integer.MAX_VALUE)
+                .filter(Files::isRegularFile)
+                .forEach(filePath -> {
+                    try {
+                        Path relativePath = versionedDir.relativize(filePath);
+                        Path keyLink = mountPath.resolve(relativePath);
+                        if (Files.exists(keyLink)) {
+                            Files.delete(keyLink);
+                        }
+                        Path parentDir = keyLink.getParent();
+                        if (parentDir != null) {
+                            Files.createDirectories(parentDir);
+                        }
+                        Files.createSymbolicLink(keyLink, buildRelativeDataTarget(mountPath, keyLink, relativePath));
+                        setSymlinkPermissions(keyLink);
+                    } catch (Exception e) {
+                        LoggingService.logWarning(MODULE_NAME,
+                            "Error creating key symlink: " + filePath.getFileName() + " - " + e.getMessage());
+                    }
+                });
+        } catch (IOException e) {
+            LoggingService.logWarning(MODULE_NAME, "Error walking versioned dir for symlinks: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Removes symlinks under mountPath that no longer have a corresponding file in targetVersionedDir.
+     * Walks recursively to handle nested key structure. Does not follow symlinks when walking.
+     */
+    private void removeObsoleteSymlinksRecursively(Path mountPath, Path targetVersionedDir) {
+        try {
+            List<Path> toDelete = new ArrayList<>();
+            Files.walk(mountPath, Integer.MAX_VALUE)
+                .filter(Files::isSymbolicLink)
+                .forEach(path -> {
+                    String fileName = path.getFileName().toString();
+                    if (fileName.equals(DATA_SYMLINK) || fileName.startsWith("..")) {
+                        return;
+                    }
+                    Path relativePath = mountPath.relativize(path);
+                    if (!Files.isRegularFile(targetVersionedDir.resolve(relativePath), LinkOption.NOFOLLOW_LINKS)) {
+                        toDelete.add(path);
+                    }
+                });
+            // Delete from deepest first so parent dirs are empty when we need to remove children
+            toDelete.stream()
+                .sorted(Comparator.comparingInt((Path p) -> p.getNameCount()).reversed())
+                .forEach(path -> {
+                    try {
+                        Files.delete(path);
+                        LoggingService.logDebug(MODULE_NAME, "Removed obsolete symlink: " + path);
+                    } catch (Exception e) {
+                        LoggingService.logWarning(MODULE_NAME, "Error removing obsolete symlink: " + path + " - " + e.getMessage());
+                    }
+                });
+        } catch (IOException e) {
+            LoggingService.logWarning(MODULE_NAME, "Error walking mount path for obsolete symlinks: " + e.getMessage());
         }
     }
     
@@ -859,25 +977,11 @@ public class VolumeMountManager {
                 // Get the versioned directory name (e.g., ..2025_12_30_15_00_00.123456789)
                 String versionedDirName = sourceVersionedDir.getFileName().toString();
                 
-                // Copy the versioned directory to per-microservice directory
+                // Copy the versioned directory to per-microservice directory (recursive for nested keys)
                 Path targetVersionedDir = mountPath.resolve(versionedDirName);
                 if (!Files.exists(targetVersionedDir)) {
                     Files.createDirectories(targetVersionedDir);
-                    
-                    // Copy all files from source versioned directory to target
-                    Files.list(sourceVersionedDir).forEach(sourceFile -> {
-                        if (Files.isRegularFile(sourceFile)) {
-                            try {
-                                Path targetFile = targetVersionedDir.resolve(sourceFile.getFileName());
-                                Files.copy(sourceFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
-                                // Preserve file permissions
-                                setFilePermissions(targetFile, type);
-                            } catch (Exception e) {
-                                LoggingService.logWarning(MODULE_NAME, 
-                                    "Error copying file: " + sourceFile.getFileName() + " - " + e.getMessage());
-                            }
-                        }
-                    });
+                    copyVersionedDirRecursively(sourceVersionedDir, targetVersionedDir, type);
                 }
                 
                 // Create ..data symlink pointing to versioned directory (relative path)
@@ -888,23 +992,8 @@ public class VolumeMountManager {
                     setSymlinkPermissions(dataLink);
                 }
                 
-                // Create key symlinks pointing to ..data/key (relative paths)
-                Files.list(targetVersionedDir).forEach(keyPath -> {
-                    if (Files.isRegularFile(keyPath)) {
-                        String key = keyPath.getFileName().toString();
-                        try {
-                            Path keyLink = mountPath.resolve(key);
-                            if (!Files.exists(keyLink)) {
-                                // Create relative symlink: key -> ..data/key
-                                Files.createSymbolicLink(keyLink, Paths.get(DATA_SYMLINK + "/" + key));
-                                setSymlinkPermissions(keyLink);
-                            }
-                        } catch (Exception e) {
-                            LoggingService.logWarning(MODULE_NAME, 
-                                "Error creating key symlink: " + key + " - " + e.getMessage());
-                        }
-                    }
-                });
+                // Create key symlinks recursively (handles nested keys e.g. sys/admin-hub.creds)
+                createKeySymlinksRecursively(mountPath, targetVersionedDir);
                 
                 // Track microservice usage in index
                 trackMicroserviceUsage(volumeName, microserviceUuid, true);
@@ -976,25 +1065,11 @@ public class VolumeMountManager {
                         continue;
                     }
                     
-                    // Copy new versioned directory if it doesn't exist
+                    // Copy new versioned directory if it doesn't exist (recursive for nested keys)
                     Path targetVersionedDir = mountPath.resolve(versionedDirName);
                     if (!Files.exists(targetVersionedDir)) {
                         Files.createDirectories(targetVersionedDir);
-                        
-                        // Copy all files from source versioned directory to target
-                        Files.list(sourceVersionedDir).forEach(sourceFile -> {
-                            if (Files.isRegularFile(sourceFile)) {
-                                try {
-                                    Path targetFile = targetVersionedDir.resolve(sourceFile.getFileName());
-                                    Files.copy(sourceFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
-                                    // Preserve file permissions
-                                    setFilePermissions(targetFile, type);
-                                } catch (Exception e) {
-                                    LoggingService.logWarning(MODULE_NAME, 
-                                        "Error copying file: " + sourceFile.getFileName() + " - " + e.getMessage());
-                                }
-                            }
-                        });
+                        copyVersionedDirRecursively(sourceVersionedDir, targetVersionedDir, type);
                     }
                     
                     // Atomically update ..data symlink to point to new version
@@ -1007,41 +1082,11 @@ public class VolumeMountManager {
                     setSymlinkPermissions(newDataLink);
                     Files.move(newDataLink, dataLink, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
                     
-                    // Update/create key symlinks (relative paths)
-                    Files.list(targetVersionedDir).forEach(keyPath -> {
-                        if (Files.isRegularFile(keyPath)) {
-                            String key = keyPath.getFileName().toString();
-                            try {
-                                Path keyLink = mountPath.resolve(key);
-                                if (Files.exists(keyLink)) {
-                                    Files.delete(keyLink);
-                                }
-                                // Create relative symlink: key -> ..data/key
-                                Files.createSymbolicLink(keyLink, Paths.get(DATA_SYMLINK + "/" + key));
-                                setSymlinkPermissions(keyLink);
-                            } catch (Exception e) {
-                                LoggingService.logWarning(MODULE_NAME, 
-                                    "Error syncing key symlink: " + key + " for microservice: " + microserviceUuid);
-                            }
-                        }
-                    });
+                    // Update/create key symlinks recursively (handles nested keys)
+                    createKeySymlinksRecursively(mountPath, targetVersionedDir);
                     
-                    // Remove symlinks for keys that no longer exist
-                    Files.list(mountPath).forEach(path -> {
-                        String fileName = path.getFileName().toString();
-                        if (!fileName.equals(DATA_SYMLINK) && !fileName.startsWith("..") && Files.isSymbolicLink(path)) {
-                            if (!Files.exists(targetVersionedDir.resolve(fileName))) {
-                                try {
-                                    Files.delete(path);
-                                    LoggingService.logDebug(MODULE_NAME, 
-                                        "Removed obsolete symlink: " + fileName + " for microservice: " + microserviceUuid);
-                                } catch (Exception e) {
-                                    LoggingService.logWarning(MODULE_NAME, 
-                                        "Error removing obsolete symlink: " + fileName);
-                                }
-                            }
-                        }
-                    });
+                    // Remove symlinks for keys that no longer exist (recursive for nested structure)
+                    removeObsoleteSymlinksRecursively(mountPath, targetVersionedDir);
                     
                     // Clean up old versioned directories in per-microservice directory
                     cleanupOldVersions(mountPath);

@@ -206,6 +206,9 @@ public class ProcessManager implements IOFogModule {
 		if (shouldContainerBeUpdated(microservice, container, docker.getMicroserviceStatus(container.getId(), microservice.getMicroserviceUuid()))) {
 			StatusReporter.setProcessManagerStatus().setMicroservicesState(microservice.getMicroserviceUuid(), MicroserviceState.UPDATING);
 			addTask(new ContainerTask(UPDATE, microservice.getMicroserviceUuid()));
+			if (microservice.isStuckInRestart()) {
+				microservice.setStuckInRestart(false);
+			}
 		}
 		logDebug("Finished update microservices");
 	}
@@ -213,7 +216,7 @@ public class ProcessManager implements IOFogModule {
 	private void handleLatestMicroservices() {
 		logDebug("Start handle latest microservices");
 		microserviceManager.getLatestMicroservices().stream()
-			.filter(microservice -> !microservice.isUpdating() && !microservice.isStuckInRestart())
+			.filter(microservice -> !microservice.isUpdating() && (!microservice.isStuckInRestart() || microservice.isRebuild()))
 			.sorted((m1, m2) -> {
 				int scheduleCompare = Integer.compare(m1.getSchedule(), m2.getSchedule());
 				return scheduleCompare != 0 ? scheduleCompare : m1.getMicroserviceUuid().compareTo(m2.getMicroserviceUuid());
@@ -223,7 +226,8 @@ public class ProcessManager implements IOFogModule {
 
 				if (!containerOptional.isPresent() && !microservice.isDelete()) {
 					MicroserviceStatus status = StatusReporter.getProcessManagerStatus().getMicroserviceStatus(microservice.getMicroserviceUuid());
-					if (status != null && MicroserviceState.UNKNOWN.equals(status.getStatus())) {
+					if ((status != null && MicroserviceState.UNKNOWN.equals(status.getStatus()))
+							|| (status != null && MicroserviceState.FAILED.equals(status.getStatus()) && microservice.isRebuild())) {
 						StatusReporter.setProcessManagerStatus().setMicroservicesState(microservice.getMicroserviceUuid(), MicroserviceState.QUEUED);
 						addMicroservice(microservice);
 					}

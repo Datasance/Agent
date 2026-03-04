@@ -26,7 +26,6 @@ import org.eclipse.iofog.exception.AgentSystemException;
 import org.eclipse.iofog.exception.AgentUserException;
 import org.eclipse.iofog.field_agent.enums.RequestType;
 import org.eclipse.iofog.local_api.LocalApi;
-import org.eclipse.iofog.message_bus.MessageBus;
 import org.eclipse.iofog.microservice.*;
 import org.eclipse.iofog.network.IOFogNetworkInterfaceManager;
 import org.eclipse.iofog.process_manager.ProcessManager;
@@ -167,10 +166,6 @@ public class FieldAgent implements IOFogModule {
                         "UNKNOWN" : IOFogNetworkInterfaceManager.getInstance().getCurrentIpAddress())
                 .add("ipAddressExternal", Configuration.getIpAddressExternal() == null ?
                         "UNKNOWN" : Configuration.getIpAddressExternal())
-                .add("processedMessages", StatusReporter.getMessageBusStatus().getProcessedMessages())
-                .add("microserviceMessageCounts", StatusReporter.getMessageBusStatus().getJsonPublishedMessagesPerMicroservice() == null ?
-                        "UNKNOWN" : StatusReporter.getMessageBusStatus().getJsonPublishedMessagesPerMicroservice())
-                .add("messageSpeed", StatusReporter.getMessageBusStatus().getAverageSpeed())
                 .add("lastCommandTime", StatusReporter.getFieldAgentStatus().getLastCommandTime())
                 .add("tunnelStatus", StatusReporter.getSshManagerStatus().getJsonProxyStatus() == null ?
                         "UNKNOWN" : StatusReporter.getSshManagerStatus().getJsonProxyStatus())
@@ -400,14 +395,12 @@ public class FieldAgent implements IOFogModule {
                     loadVolumeMounts();
                 }
                 if (changes.getBoolean("microserviceConfig",false) || changes.getBoolean("microserviceList",false) ||
-                        changes.getBoolean("routing",false) || changes.getBoolean("execSessions",false) || initialization) {
+                        changes.getBoolean("execSessions",false) || initialization) {
                     logDebug("Processing microservice related changes - microserviceConfig: " + changes.getBoolean("microserviceConfig",false) + 
                             ", microserviceList: " + changes.getBoolean("microserviceList",false) + 
-                            ", routing: " + changes.getBoolean("routing",false) + 
                             ", execSessions: " + changes.getBoolean("execSessions",false));
                     logDebug("Changes object structure: " + changes.toString());
                     boolean microserviceConfig = changes.getBoolean("microserviceConfig");
-                    boolean routing = changes.getBoolean("routing");
                     boolean execSessions = changes.getBoolean("execSessions");
                     int defaultFreq = Configuration.getStatusFrequency();
                     Configuration.setStatusFrequency(1);
@@ -426,19 +419,6 @@ public class FieldAgent implements IOFogModule {
                             }
                         }
 
-                        if (routing) {
-                            logDebug("Processing routing changes");
-                            try {
-                                processRoutes(microservices);
-                                if (!changes.getBoolean("routerChanged",false) || initialization) {
-                                    MessageBus.getInstance().update();
-                                }
-                            } catch (Exception e) {
-                                logError("Unable to update microservices routes", e);
-                                resetChanges = false;
-                            }
-                        }
-                        
                         // Notify ProcessManager to immediately restart monitoring thread
                         // This ensures containers are processed without waiting for the next scheduled interval
                         ProcessManager.getInstance().update();
@@ -475,15 +455,6 @@ public class FieldAgent implements IOFogModule {
                         updateDiagnostics();
                     } catch (Exception e) {
                         logError("Unable to update diagnostics", e);
-                        resetChanges = false;
-                    }
-                }
-                if (changes.getBoolean("routerChanged",false) && !initialization) {
-                    logDebug("Processing routerChanged change");
-                    try {
-                        MessageBus.getInstance().update();
-                    } catch (Exception e) {
-                        logError("Unable to update router info", e);
                         resetChanges = false;
                     }
                 }
@@ -905,31 +876,6 @@ public class FieldAgent implements IOFogModule {
         logDebug("Finished process microservice configuration");
     }
 
-    /**
-     * gets list of Microservice routings from file or IOFog controller
-     */
-    private void processRoutes(List<Microservice> microservices) {
-        Map<String, Route> routes = new HashMap<>();
-        for (Microservice microservice : microservices) {
-            List<String> jsonRoutes = microservice.getRoutes();
-            if (jsonRoutes == null || jsonRoutes.size() == 0) {
-                continue;
-            }
-
-            String microserviceUuid = microservice.getMicroserviceUuid();
-            Route microserviceRoute = new Route();
-
-            for (String jsonRoute : jsonRoutes) {
-                microserviceRoute.getReceivers().add(jsonRoute);
-            }
-
-            routes.put(microserviceUuid, microserviceRoute);
-        }
-
-        microserviceManager.setRoutes(routes);
-        logDebug("Finished process routes");
-    }
-
     private JsonArray loadMicroservicesJsonFile() {
         String filename = MICROSERVICE_FILE;
         JsonArray microservicesJson = readFile(filesPath + filename);
@@ -1021,7 +967,7 @@ public class FieldAgent implements IOFogModule {
 
     private Function<JsonObject, Microservice> containerJsonObjectToMicroserviceFunction() {
         return jsonObj -> {
-            Microservice microservice = new Microservice(jsonObj.getString("uuid"), jsonObj.getString("imageId"));
+            Microservice microservice = new Microservice(jsonObj.getString("uuid"), jsonObj.getString("imageId"), jsonObj.getString("name"), jsonObj.getString("application"));
             microservice.setConfig(jsonObj.getString("config"));
             if (!jsonObj.isNull("runAsUser")) {
                 microservice.setRunAsUser(jsonObj.getString("runAsUser"));
@@ -1042,11 +988,8 @@ public class FieldAgent implements IOFogModule {
             microservice.setDelete(jsonObj.getBoolean("delete"));
             microservice.setDeleteWithCleanup(jsonObj.getBoolean("deleteWithCleanup"));
 
-            JsonValue routesValue = jsonObj.get("routes");
-            microservice.setRoutes(getStringList(routesValue));
-
-            microservice.setConsumer(jsonObj.getBoolean("isConsumer"));
             microservice.setRouter(jsonObj.getBoolean("isRouter"));
+            microservice.setNats(jsonObj.getBoolean("isNats"));
             if (jsonObj.getBoolean("isRouter")) {
                 Configuration.setRouterUuid(jsonObj.getString("uuid"));
                 Configuration.setRouterInterior(jsonObj.getBoolean("hostNetworkMode"));
@@ -1778,11 +1721,6 @@ public class FieldAgent implements IOFogModule {
      */
     private void notifyModules() {
     	logInfo("Notifying modules for configuration update");
-    	try {
-            MessageBus.getInstance().update();
-        } catch (Exception e) {
-    	    logWarning("Unable to update Message Bus" + " : " + e.getMessage());
-        }
         LocalApi.getInstance().update();
         ProcessManager.getInstance().update();
     }
@@ -1870,9 +1808,9 @@ public class FieldAgent implements IOFogModule {
             // Clear microservice manager
             microserviceManager.clear();
             
-            // Stop running microservices
+            // Stop and remove all agent containers (and volumes) so no sensitive data remains
             try {
-                ProcessManager.getInstance().stopRunningMicroservices(false, iofogUuid);
+                ProcessManager.getInstance().stopRunningMicroservices(true, iofogUuid);
             } catch (Exception e) {
                 logError("Error stopping running microservices",
                         new AgentSystemException(e.getMessage(), e));
@@ -1984,7 +1922,6 @@ public class FieldAgent implements IOFogModule {
             loadVolumeMounts();
             List<Microservice> microservices = loadMicroservices(!isConnected);
             processMicroserviceConfig(microservices);
-            processRoutes(microservices);
             // Notify ProcessManager to immediately restart monitoring thread
             // This ensures containers are processed during initialization without waiting
             ProcessManager.getInstance().update();
