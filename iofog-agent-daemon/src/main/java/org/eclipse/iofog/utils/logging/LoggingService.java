@@ -118,6 +118,15 @@ public final class LoggingService {
 
         logDirectory.mkdirs();
 
+        if (SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) {
+            try {
+                Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-x---");
+                Files.setPosixFilePermissions(logDirectory.toPath(), perms);
+            } catch (Exception e) {
+                // Log directory may have been created by packaging with correct permissions
+            }
+        }
+
         final String logFilePattern = logDirectory.getPath() + "/iofog-agent.%g.log";
 
         if (maxFileSize < Constants.MiB) {
@@ -210,7 +219,7 @@ public final class LoggingService {
                     LinkOption.NOFOLLOW_LINKS);
             fileAttributeView.setGroup(group);
 
-            Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxrwx---");
+            Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-x---");
             Files.setPosixFilePermissions(logDirectory.toPath(), perms);
 
         } else if (SystemUtils.IS_OS_WINDOWS) {

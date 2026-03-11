@@ -80,13 +80,13 @@ RUN true && \
     chown -R :iofog-agent /var/run/iofog-agent && \
     chown -R :iofog-agent /var/backups/iofog-agent && \
     chown -R :iofog-agent /usr/share/iofog-agent && \
-    chmod 774 -R /etc/iofog-agent && \
-    chmod 774 -R /var/log/iofog-agent && \
-    chmod 774 -R /var/lib/iofog-agent && \
-    chmod 774 -R /var/run/iofog-agent && \
-    chmod 774 -R /var/backups/iofog-agent && \
+    chmod 750 -R /etc/iofog-agent && \
+    chmod 750 -R /var/log/iofog-agent && \
+    chmod 750 -R /var/lib/iofog-agent && \
+    chmod 750 -R /var/run/iofog-agent && \
+    chmod 750 -R /var/backups/iofog-agent && \
     chmod 754 -R /usr/share/iofog-agent && \
-    chmod 774 /etc/init.d/iofog-agent && \
+    chmod 750 /etc/init.d/iofog-agent && \
     chmod 754 /usr/bin/iofog-agent && \
     chown :iofog-agent /usr/bin/iofog-agent && \
     true
