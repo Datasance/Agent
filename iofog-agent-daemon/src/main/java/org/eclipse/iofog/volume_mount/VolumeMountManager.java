@@ -97,7 +97,8 @@ public class VolumeMountManager {
                 LoggingService.logDebug(MODULE_NAME, "Creating volumes directory at: " + baseDirectory);
                 Files.createDirectories(volumesPath);
             }
-            
+            setDirectoryPermissions(volumesPath);
+
             // Load or create index file
             loadIndex();
             // Rebuild type cache after loading index
@@ -444,11 +445,13 @@ public class VolumeMountManager {
             String typeDir = getTypeDirectory(type);
             Path mountPath = Paths.get(baseDirectory, typeDir, name);
             Files.createDirectories(mountPath);
-            
+            setDirectoryPermissions(mountPath);
+
             // Create versioned directory
             String versionDirName = createVersionedDirectoryName();
             Path versionDir = mountPath.resolve(versionDirName);
             Files.createDirectories(versionDir);
+            setDirectoryPermissions(versionDir);
             
             // Create files in versioned directory
             JsonObjectBuilder dataBuilder = Json.createObjectBuilder();
@@ -460,6 +463,7 @@ public class VolumeMountManager {
                     Path parentDir = filePath.getParent();
                     if (parentDir != null) {
                         Files.createDirectories(parentDir);
+                        setDirectoryPermissions(parentDir);
                     }
                     Files.write(filePath, decodedContent.getBytes());
                     // Set file permissions based on type
@@ -491,6 +495,7 @@ public class VolumeMountManager {
                     Path parentDir = keyLink.getParent();
                     if (parentDir != null) {
                         Files.createDirectories(parentDir);
+                        setDirectoryPermissions(parentDir);
                     }
                     Files.createSymbolicLink(keyLink, buildRelativeDataTarget(mountPath, keyLink, keyRelativePath));
                     setSymlinkPermissions(keyLink);
@@ -563,12 +568,14 @@ public class VolumeMountManager {
             String typeDir = getTypeDirectory(type);
             Path mountPath = Paths.get(baseDirectory, typeDir, name);
             Files.createDirectories(mountPath);
-            
+            setDirectoryPermissions(mountPath);
+
             // Create new versioned directory
             String versionDirName = createVersionedDirectoryName();
             Path versionDir = mountPath.resolve(versionDirName);
             Files.createDirectories(versionDir);
-            
+            setDirectoryPermissions(versionDir);
+
             // Create files in new versioned directory
             JsonObjectBuilder dataBuilder = Json.createObjectBuilder();
             data.forEach((key, value) -> {
@@ -579,6 +586,7 @@ public class VolumeMountManager {
                     Path parentDir = filePath.getParent();
                     if (parentDir != null) {
                         Files.createDirectories(parentDir);
+                        setDirectoryPermissions(parentDir);
                     }
                     Files.write(filePath, decodedContent.getBytes());
                     // Set file permissions based on type
@@ -612,6 +620,7 @@ public class VolumeMountManager {
                     Path parentDir = keyLink.getParent();
                     if (parentDir != null) {
                         Files.createDirectories(parentDir);
+                        setDirectoryPermissions(parentDir);
                     }
                     Files.createSymbolicLink(keyLink, buildRelativeDataTarget(mountPath, keyLink, keyRelativePath));
                     setSymlinkPermissions(keyLink);
@@ -740,12 +749,13 @@ public class VolumeMountManager {
                             Files.createDirectories(parentDir);
                         }
                         Files.copy(sourceFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
-                        setFilePermissions(targetFile, type);
+                        setFilePermissionsForBindMount(targetFile);
                     } catch (Exception e) {
                         LoggingService.logWarning(MODULE_NAME,
                             "Error copying file: " + sourceFile + " - " + e.getMessage());
                     }
                 });
+            setDirectoryPermissionsForBindMountRecursively(targetVersionedDir);
         } catch (IOException e) {
             LoggingService.logWarning(MODULE_NAME, "Error walking source versioned dir: " + e.getMessage());
         }
@@ -783,6 +793,7 @@ public class VolumeMountManager {
                         Path parentDir = keyLink.getParent();
                         if (parentDir != null) {
                             Files.createDirectories(parentDir);
+                            setDirectoryPermissionsForBindMount(parentDir);
                         }
                         Files.createSymbolicLink(keyLink, buildRelativeDataTarget(mountPath, keyLink, relativePath));
                         setSymlinkPermissions(keyLink);
@@ -884,7 +895,89 @@ public class VolumeMountManager {
             LoggingService.logWarning(MODULE_NAME, "Error setting symlink permissions: " + e.getMessage());
         }
     }
-    
+
+    /**
+     * Sets directory permissions to 750 (rwxr-x---) for security.
+     * Restricts access to owner and group only, matching Kubernetes kubelet pattern.
+     * @param path Directory path
+     */
+    private void setDirectoryPermissions(Path path) {
+        try {
+            if ((SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) && Files.exists(path) && Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+                Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-x---");
+                Files.setPosixFilePermissions(path, perms);
+            }
+        } catch (Exception e) {
+            LoggingService.logWarning(MODULE_NAME, "Could not set directory permissions: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Recursively sets 750 permissions on a directory and all its descendants.
+     * Used after copyVersionedDirRecursively to secure nested directory structures.
+     */
+    private void setDirectoryPermissionsRecursively(Path dir) {
+        try {
+            if (!(SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) || !Files.exists(dir) || !Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) {
+                return;
+            }
+            Files.walk(dir, Integer.MAX_VALUE)
+                .filter(p -> Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS))
+                .forEach(this::setDirectoryPermissions);
+        } catch (IOException e) {
+            LoggingService.logWarning(MODULE_NAME, "Could not set directory permissions recursively: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Sets directory permissions to 755 (rwxr-xr-x) for bind-mount targets.
+     * Allows non-root container processes to traverse and read mounted volumes.
+     * @param path Directory path
+     */
+    private void setDirectoryPermissionsForBindMount(Path path) {
+        try {
+            if ((SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) && Files.exists(path) && Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+                Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-xr-x");
+                Files.setPosixFilePermissions(path, perms);
+            }
+        } catch (Exception e) {
+            LoggingService.logWarning(MODULE_NAME, "Could not set bind-mount directory permissions: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Recursively sets 755 permissions on a directory and all its descendants.
+     * Used for per-microservice bind-mount target so non-root containers can access.
+     */
+    private void setDirectoryPermissionsForBindMountRecursively(Path dir) {
+        try {
+            if (!(SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) || !Files.exists(dir) || !Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) {
+                return;
+            }
+            Files.walk(dir, Integer.MAX_VALUE)
+                .filter(p -> Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS))
+                .forEach(this::setDirectoryPermissionsForBindMount);
+        } catch (IOException e) {
+            LoggingService.logWarning(MODULE_NAME, "Could not set bind-mount directory permissions recursively: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Sets file permissions to 644 (rw-r--r--) for bind-mount targets.
+     * Allows non-root container processes to read both secrets and configmaps.
+     * @param path File path
+     */
+    private void setFilePermissionsForBindMount(Path path) {
+        try {
+            if ((SystemUtils.IS_OS_LINUX || SystemUtils.IS_OS_MAC) && Files.exists(path) && Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rw-r--r--");
+                Files.setPosixFilePermissions(path, perms);
+            }
+        } catch (Exception e) {
+            LoggingService.logWarning(MODULE_NAME, "Could not set bind-mount file permissions: " + e.getMessage());
+        }
+    }
+
     /**
      * Deletes a volume mount
      * @param uuid UUID of the volume mount to delete
@@ -959,7 +1052,8 @@ public class VolumeMountManager {
             try {
                 // Atomic directory creation (handles race conditions)
                 Files.createDirectories(mountPath);
-                
+                setDirectoryPermissionsForBindMount(mountPath);
+
                 // Calculate source path
                 String typeDir = getTypeDirectory(type);
                 Path sourcePath = Paths.get(baseDirectory, typeDir, volumeName);
@@ -981,6 +1075,7 @@ public class VolumeMountManager {
                 Path targetVersionedDir = mountPath.resolve(versionedDirName);
                 if (!Files.exists(targetVersionedDir)) {
                     Files.createDirectories(targetVersionedDir);
+                    setDirectoryPermissionsForBindMount(targetVersionedDir);
                     copyVersionedDirRecursively(sourceVersionedDir, targetVersionedDir, type);
                 }
                 
@@ -1069,6 +1164,7 @@ public class VolumeMountManager {
                     Path targetVersionedDir = mountPath.resolve(versionedDirName);
                     if (!Files.exists(targetVersionedDir)) {
                         Files.createDirectories(targetVersionedDir);
+                        setDirectoryPermissionsForBindMount(targetVersionedDir);
                         copyVersionedDirRecursively(sourceVersionedDir, targetVersionedDir, type);
                     }
                     

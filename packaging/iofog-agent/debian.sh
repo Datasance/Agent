@@ -52,11 +52,12 @@ chown -R :iofog-agent /var/backups/iofog-agent
 chown -R :iofog-agent /usr/share/iofog-agent
 #echo "Changed ownership of directories to iofog-agent group"
 
-chmod 774 -R /etc/iofog-agent
-chmod 774 -R /var/log/iofog-agent
-chmod 774 -R /var/lib/iofog-agent
-chmod 774 -R /var/run/iofog-agent
-chmod 774 -R /var/backups/iofog-agent
+chmod 750 -R /etc/iofog-agent
+chmod 750 -R /var/log/iofog-agent
+chmod 750 -R /var/lib/iofog-agent
+chmod 750 -R /var/run/iofog-agent
+chmod 750 -R /var/backups/iofog-agent
+chmod 750 -R /var/log/iofog-microservices
 chmod 754 -R /usr/share/iofog-agent
 #echo "Changed permissions of directories"
 
@@ -64,7 +65,7 @@ mv /dev/random /dev/random.real
 ln -s /dev/urandom /dev/random
 #echo "Moved dev pipes for netty"
 
-chmod 774 /etc/systemd/system/iofog-agent.service
+chmod 750 /etc/systemd/system/iofog-agent.service
 #echo "Changed permissions on service script"
 
 chmod 754 /usr/bin/iofog-agent
